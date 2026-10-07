@@ -62,6 +62,9 @@ et le tunnel complet utilise **nftables** (dépendance des paquets), comme `wg-q
 L'installation est la **seule** étape qui demande des droits administrateur : elle
 installe et démarre le service privilégié.
 
+Les installeurs de chaque version sont disponibles sur la page
+[Releases](https://github.com/W3liseth/Cryptonaute/releases/latest).
+
 ### Windows
 
 Lancez `Cryptonaute_<version>_x64-setup.exe` et acceptez l'invite UAC. L'application est
@@ -83,7 +86,8 @@ Désinstallation : `sudo apt remove cryptonaute` ou `sudo dnf remove Cryptonaute
 
 Ouvrez `Cryptonaute_<version>_arm64.pkg`. Le paquet installe `Cryptonaute.app` dans
 `/Applications` et le démon dans `/Library/PrivilegedHelperTools`, enregistré comme
-LaunchDaemon. Désinstallation : `sudo sh uninstall.sh` (fourni avec le paquet).
+LaunchDaemon. Désinstallation : `sudo sh Cryptonaute_<version>_macos-uninstall.sh`
+(fourni avec le paquet dans la release, ou `uninstall.sh` après un build local).
 
 > Les paquets ne sont pas signés : Windows SmartScreen et macOS Gatekeeper afficheront
 > un avertissement. Voir [Limites connues](#limites-connues-et-pistes).
@@ -206,7 +210,13 @@ Le paquet est produit pour l'architecture de la machine (`arm64` ou `x86_64`).
 
 Le workflow [`.github/workflows/build.yml`](.github/workflows/build.yml) exécute clippy
 et les tests sur les trois plateformes, puis produit l'installeur Windows, les paquets
-Linux et le paquet macOS (Apple Silicon) sous forme d'artefacts.
+Linux et le paquet macOS (Apple Silicon).
+
+Sur `main`, si la release correspondant à la version de `Cargo.toml` n'existe pas encore,
+le workflow crée le tag `vX.Y.Z` et publie la release avec les installeurs en
+téléchargement direct (sans archive zip). Pour publier une nouvelle version, il suffit
+donc d'incrémenter `version` et de pousser sur `main` ; tant que la version ne change
+pas, les builds suivants ne republient rien.
 
 ### Version
 

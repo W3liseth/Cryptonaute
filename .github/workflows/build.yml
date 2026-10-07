@@ -1,10 +1,11 @@
 # Compile, teste et produit les installeurs de Cryptonaute pour Windows, Linux et macOS.
+# Sur main, publie la release « vX.Y.Z » (version de Cargo.toml), tag compris, avec les
+# installeurs si elle n'existe pas encore : il suffit d'incrémenter la version pour publier.
 name: build
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -15,6 +16,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      exists: ${{ steps.read.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          [ -n "$VERSION" ] || { echo "::error::version introuvable dans Cargo.toml"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "La release v$VERSION existe déjà : pas de nouvelle publication."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION : release à publier (sur main)."
+          fi
+
   test:
     name: Tests (${{ matrix.os }})
     strategy:
@@ -95,3 +119,42 @@ jobs:
           path: |
             dist/*.pkg
             dist/uninstall.sh
+
+  # Les fichiers sont joints un par un à la release : téléchargeables tels quels, sans zip.
+  release:
+    name: Release v${{ needs.version.outputs.version }}
+    needs: [version, windows, linux, macos]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      needs.version.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publication de la release et du tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          cd artifacts
+          mv uninstall.sh "Cryptonaute_${VERSION}_macos-uninstall.sh"
+          # Tous les installeurs doivent porter la version publiée.
+          for f in *; do
+            case "$f" in
+              *"$VERSION"*) ;;
+              *) echo "::error::$f ne correspond pas à la version $VERSION"; exit 1 ;;
+            esac
+          done
+          ls -l
+          gh release create "v$VERSION" * \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Cryptonaute $VERSION" \
+            --generate-notes
