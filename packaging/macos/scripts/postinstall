@@ -1,0 +1,3 @@
+#!/bin/sh
+# Installe le LaunchDaemon et le démarre (le paquet est installé avec les droits administrateur).
+/Library/PrivilegedHelperTools/cryptonaute-service install

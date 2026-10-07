@@ -1,0 +1,16 @@
+[package]
+name = "cryptonaute-common"
+description = "Types partagés entre le service Cryptonaute et l'interface graphique"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+ipnet.workspace = true
+base64.workspace = true
+thiserror.workspace = true
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "getrandom", "zeroize"] }
+zeroize = "1"

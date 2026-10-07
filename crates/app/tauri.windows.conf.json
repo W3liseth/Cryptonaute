@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerIcon": "icons/icon.ico",
+        "languages": ["French"],
+        "displayLanguageSelector": false,
+        "installerHooks": "./installer/hooks.nsh"
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Mise à jour : arrête l'ancienne version du démon avant de remplacer ses fichiers.
+HELPER=/Library/PrivilegedHelperTools/cryptonaute-service
+if [ -x "$HELPER" ]; then
+    "$HELPER" uninstall || true
+fi
+pkill -x cryptonaute 2>/dev/null || true
+
+# Migration : Cryptonaute s'appelait « RustGuard » jusqu'à la version 0.2.1.
+# Les tunnels des utilisateurs sont repris par l'application à son premier lancement.
+LEGACY_HELPER=/Library/PrivilegedHelperTools/rustguard-service
+if [ -x "$LEGACY_HELPER" ]; then
+    "$LEGACY_HELPER" uninstall || true
+    rm -f "$LEGACY_HELPER"
+fi
+pkill -x rustguard 2>/dev/null || true
+rm -rf /Applications/RustGuard.app
+pkgutil --forget fr.rustguard.pkg >/dev/null 2>&1 || true
+exit 0

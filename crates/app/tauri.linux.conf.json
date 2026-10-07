@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": [
+      "deb",
+      "rpm"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "nftables"
+        ],
+        "section": "net",
+        "files": {
+          "/usr/bin/cryptonaute-service": "../../target/release/cryptonaute-service"
+        },
+        "postInstallScript": "../../packaging/linux/deb-postinst.sh",
+        "preRemoveScript": "../../packaging/linux/deb-prerm.sh",
+        "conflicts": [
+          "rust-guard"
+        ],
+        "replaces": [
+          "rust-guard"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "nftables"
+        ],
+        "files": {
+          "/usr/bin/cryptonaute-service": "../../target/release/cryptonaute-service"
+        },
+        "postInstallScript": "../../packaging/linux/rpm-post.sh",
+        "preRemoveScript": "../../packaging/linux/rpm-preun.sh",
+        "conflicts": [
+          "RustGuard"
+        ],
+        "obsoletes": [
+          "RustGuard"
+        ]
+      }
+    }
+  }
+}

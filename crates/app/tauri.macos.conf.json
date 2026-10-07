@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Cryptonaute",
+        "width": 1120,
+        "height": 740,
+        "minWidth": 900,
+        "minHeight": 620,
+        "center": true,
+        "visible": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "dragDropEnabled": false,
+        "backgroundColor": "#090a13"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["app"],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}

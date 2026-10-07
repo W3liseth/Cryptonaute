@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Cryptonaute",
+  "identifier": "fr.cryptonaute.client",
+  "build": {
+    "frontendDist": "../../ui",
+    "beforeBuildCommand": "cargo build --release -p cryptonaute-service"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Cryptonaute",
+        "width": 1120,
+        "height": 740,
+        "minWidth": 900,
+        "minHeight": 620,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "dragDropEnabled": false,
+        "backgroundColor": "#090a13"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "publisher": "Cryptonaute",
+    "category": "Utility",
+    "shortDescription": "Client WireGuard",
+    "longDescription": "Client WireGuard pour Windows, Linux et macOS, utilisable sans droits administrateur après l'installation.",
+    "icon": ["icons/icon.png", "icons/icon.ico"]
+  }
+}

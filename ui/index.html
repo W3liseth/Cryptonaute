@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cryptonaute</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="app.js" defer></script>
+</head>
+<body data-state="disconnected">
+  <!-- Fond animé -->
+  <div class="backdrop" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+    <div class="grid"></div>
+  </div>
+
+  <!-- Barre de titre personnalisée -->
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#7c5cff" /><stop offset="1" stop-color="#22d3ee" />
+          </linearGradient>
+        </defs>
+        <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#lg)" />
+        <path d="M16 6.5c2.6 1.4 5 2 7.3 2.2v6.4c0 5-3 8.6-7.3 10.5-4.3-1.9-7.3-5.5-7.3-10.5V8.7c2.3-.2 4.7-.8 7.3-2.2z" fill="#fff" />
+        <path d="M17 10l-4.6 7.2h3.4l-.9 5.2 5-7.7h-3.4z" fill="url(#lg)" />
+      </svg>
+      <span data-tauri-drag-region>Cryptonaute</span>
+    </div>
+    <div class="win-controls">
+      <button id="win-min" title="Réduire" aria-label="Réduire"><svg viewBox="0 0 12 12"><path d="M2 6h8" /></svg></button>
+      <button id="win-max" title="Agrandir" aria-label="Agrandir"><svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2" /></svg></button>
+      <button id="win-close" class="close" title="Fermer" aria-label="Fermer"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" /></svg></button>
+    </div>
+  </header>
+
+  <div class="app">
+    <!-- Liste des tunnels -->
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <h2>Tunnels</h2>
+        <span class="count" id="tunnel-count">0</span>
+      </div>
+      <label class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+        <input id="search" type="search" placeholder="Rechercher…" autocomplete="off" />
+      </label>
+      <ul id="tunnel-list" class="tunnel-list" role="listbox" aria-label="Tunnels"></ul>
+      <div class="sidebar-actions">
+        <button id="btn-import" class="btn ghost" title="Importer un fichier .conf (Ctrl+O)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 19h16" /></svg>
+          Importer
+        </button>
+        <button id="btn-new" class="btn primary" title="Nouveau tunnel (Ctrl+N)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          Nouveau
+        </button>
+      </div>
+      <div class="sidebar-foot">
+        <div class="service-pill" id="service-pill" title="">
+          <span class="dot"></span>
+          <span class="label" id="service-label">Connexion au service…</span>
+        </div>
+        <button class="icon-btn options-btn" id="btn-options" title="Options (Ctrl+,)" aria-label="Options">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" /></svg>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- Bannière service indisponible -->
+      <div class="banner" id="service-banner" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" /></svg>
+        <div>
+          <strong>Service Cryptonaute injoignable</strong>
+          <span id="service-banner-text">Vous pouvez gérer vos configurations, mais la connexion nécessite le service.</span>
+        </div>
+      </div>
+
+      <!-- Aucun tunnel -->
+      <section id="empty-view" class="view empty-view">
+        <div class="empty-art" aria-hidden="true">
+          <div class="orbit o1"></div><div class="orbit o2"></div><div class="orbit o3"></div>
+          <svg viewBox="0 0 64 64"><path d="M32 8c5.4 2.9 10.4 4.2 15.2 4.6v13.3c0 10.4-6.2 17.9-15.2 21.9-9-4-15.2-11.5-15.2-21.9V12.6C21.6 12.2 26.6 10.9 32 8z" /></svg>
+        </div>
+        <h1>Bienvenue dans Cryptonaute</h1>
+        <p>Glissez-déposez un fichier <code>.conf</code> WireGuard ici, ou créez un tunnel.<br />Aucun droit administrateur n'est nécessaire.</p>
+        <div class="empty-actions">
+          <button class="btn primary lg" data-action="import">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 19h16" /></svg>
+            Importer une configuration
+          </button>
+          <button class="btn ghost lg" data-action="new">Créer à partir de zéro</button>
+        </div>
+      </section>
+
+      <!-- Détail d'un tunnel -->
+      <section id="tunnel-view" class="view tunnel-view" hidden>
+        <div class="hero">
+          <div>
+            <div class="eyebrow">Tunnel WireGuard</div>
+            <h1 id="t-name">—</h1>
+            <div class="chips" id="t-chips"></div>
+          </div>
+          <div class="hero-actions">
+            <button class="icon-btn" id="btn-edit" title="Modifier">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" /></svg>
+            </button>
+            <button class="icon-btn danger" id="btn-delete" title="Supprimer">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="connect-card glass">
+          <button id="power" class="power" aria-label="Connexion">
+            <span class="halo"></span>
+            <span class="ripple"></span><span class="ripple r2"></span>
+            <span class="spinner"></span>
+            <span class="core">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8" /><path d="M6.3 6.8a8 8 0 1011.4 0" /></svg>
+            </span>
+          </button>
+          <div class="state">
+            <div class="state-label" id="state-label">Déconnecté</div>
+            <div class="state-sub" id="state-sub">Cliquez sur le bouton pour vous connecter</div>
+            <div class="timer" id="timer">00:00:00</div>
+          </div>
+          <div class="quick">
+            <div class="quick-item">
+              <span class="q-label">Endpoint</span>
+              <span class="q-value mono" id="q-endpoint">—</span>
+            </div>
+            <div class="quick-item">
+              <span class="q-label">Adresse</span>
+              <span class="q-value mono" id="q-address">—</span>
+            </div>
+            <div class="quick-item">
+              <span class="q-label">Handshake</span>
+              <span class="q-value" id="q-handshake">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat glass rx">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M6 14l6 6 6-6" /></svg></div>
+            <div>
+              <div class="stat-label">Reçu</div>
+              <div class="stat-value" id="s-rx">0 o</div>
+              <div class="stat-rate" id="s-rx-rate">0 o/s</div>
+            </div>
+          </div>
+          <div class="stat glass tx">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4M6 10l6-6 6 6" /></svg></div>
+            <div>
+              <div class="stat-label">Envoyé</div>
+              <div class="stat-value" id="s-tx">0 o</div>
+              <div class="stat-rate" id="s-tx-rate">0 o/s</div>
+            </div>
+          </div>
+          <div class="stat glass mode">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z" /></svg></div>
+            <div>
+              <div class="stat-label">Routage</div>
+              <div class="stat-value" id="s-mode">—</div>
+              <div class="stat-rate" id="s-mode-sub">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-card glass">
+          <div class="card-head">
+            <h3>Trafic en temps réel</h3>
+            <div class="legend">
+              <span class="lg-rx">Réception</span>
+              <span class="lg-tx">Émission</span>
+            </div>
+          </div>
+          <canvas id="chart"></canvas>
+        </div>
+
+        <div class="details">
+          <div class="detail-card glass">
+            <h3>Interface</h3>
+            <dl id="d-interface"></dl>
+          </div>
+          <div class="detail-card glass">
+            <h3>Pairs</h3>
+            <div id="d-peers"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Éditeur -->
+  <div class="modal-backdrop" id="editor" hidden>
+    <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="editor-title">
+      <header class="modal-head">
+        <h3 id="editor-title">Nouveau tunnel</h3>
+        <button class="icon-btn sm" data-close aria-label="Fermer"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+      </header>
+      <div class="modal-body">
+        <label class="field">
+          <span>Nom du tunnel</span>
+          <input id="ed-name" type="text" maxlength="32" placeholder="ex. bureau-paris" autocomplete="off" spellcheck="false" />
+          <small class="field-error" id="ed-name-err"></small>
+        </label>
+        <div class="editor-tools">
+          <button class="btn ghost sm" id="ed-file">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z" /><path d="M14 3v6h6" /></svg>
+            Charger un fichier
+          </button>
+          <button class="btn ghost sm" id="ed-keys">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4" /><path d="M10.8 12.2L20 3M17 6l3 3" /></svg>
+            Nouvelle paire de clés
+          </button>
+          <span class="spacer"></span>
+          <span class="hint">Format wg-quick (.conf)</span>
+        </div>
+        <div class="code-editor">
+          <pre class="code-hl" id="ed-hl" aria-hidden="true"></pre>
+          <textarea id="ed-config" spellcheck="false" autocomplete="off" wrap="off" aria-label="Configuration"></textarea>
+        </div>
+        <div class="validation" id="ed-validation"></div>
+      </div>
+      <footer class="modal-foot">
+        <button class="btn ghost" data-close>Annuler</button>
+        <button class="btn primary" id="ed-save">Enregistrer</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Confirmation -->
+  <div class="modal-backdrop" id="confirm" hidden>
+    <div class="modal glass small" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div class="confirm-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg></div>
+      <h3 id="confirm-title">Supprimer ce tunnel ?</h3>
+      <p id="confirm-text"></p>
+      <footer class="modal-foot">
+        <button class="btn ghost" data-close>Annuler</button>
+        <button class="btn danger" id="confirm-ok">Supprimer</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Options -->
+  <div class="modal-backdrop" id="options" hidden>
+    <div class="modal glass medium" role="dialog" aria-modal="true" aria-labelledby="options-title">
+      <header class="modal-head">
+        <h3 id="options-title">Options</h3>
+        <button class="icon-btn sm" data-close aria-label="Fermer"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+      </header>
+      <div class="modal-body">
+        <label class="option">
+          <span class="option-icon tray"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="14" width="18" height="7" rx="2" /><path d="M7 17.5h.01M12 3v8M8.5 7.5L12 11l3.5-3.5" /></svg></span>
+          <span class="option-text">
+            <strong>Icône dans la zone de notification</strong>
+            <small>Accès rapide aux tunnels près de l'horloge. Fermer la fenêtre la masque au lieu de quitter Cryptonaute.</small>
+          </span>
+          <input type="checkbox" class="switch" id="opt-tray" role="switch" />
+        </label>
+        <label class="option">
+          <span class="option-icon boot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v6M18.4 5.6l-1.4 1.4M22 12h-6M5.6 5.6L7 7M2 12h6" /><circle cx="12" cy="15" r="5" /></svg></span>
+          <span class="option-text">
+            <strong>Lancer à l’ouverture de session</strong>
+            <small id="opt-boot-desc">Démarre Cryptonaute à l'ouverture de votre session.</small>
+          </span>
+          <input type="checkbox" class="switch" id="opt-boot" role="switch" />
+        </label>
+        <p class="options-note">Ces réglages sont propres à votre compte et ne nécessitent aucun droit administrateur. Vos tunnels actifs restent gérés par le service, même lorsque l'application est fermée.</p>
+      </div>
+      <footer class="modal-foot">
+        <span class="about" id="about"></span>
+        <button class="btn primary" data-close>Terminé</button>
+      </footer>
+    </div>
+  </div>
+
+  <input type="file" id="file-input" accept=".conf,.txt" multiple hidden />
+  <div class="drop-overlay" id="drop-overlay" hidden>
+    <div class="drop-box">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 19h16" /></svg>
+      <strong>Déposez vos fichiers .conf</strong>
+      <span>Ils seront chiffrés et enregistrés dans votre profil</span>
+    </div>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>

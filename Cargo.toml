@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["crates/common", "crates/service", "crates/app"]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2021"
+license = "MIT"
+authors = ["Cryptonaute contributors"]
+
+[workspace.dependencies]
+cryptonaute-common = { path = "crates/common" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ipnet = { version = "2.9", features = ["serde"] }
+base64 = "0.22"
+thiserror = "2"
+anyhow = "1"
+log = { version = "0.4", features = ["std"] }
+windows-sys = "0.59"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "s"
