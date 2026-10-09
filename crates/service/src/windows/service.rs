@@ -12,7 +12,7 @@ use windows_service::service::{
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult, ServiceStatusHandle};
 use windows_service::{define_windows_service, service_dispatcher};
 
-use super::tunnel::TunnelManager;
+use super::tunnel::{TunnelManager, WireGuardNt};
 use super::pipe;
 use crate::logger;
 
@@ -85,14 +85,14 @@ pub fn run_console() -> anyhow::Result<()> {
     })
 }
 
-/// Boucle principale : serveur IPC jusqu'à l'arrêt, puis fermeture propre du tunnel actif.
+/// Boucle principale : serveur IPC jusqu'à l'arrêt, puis fermeture propre des tunnels actifs.
 fn run_core(shutdown: impl Future<Output = ()> + Send + 'static) -> anyhow::Result<()> {
-    let manager = Arc::new(TunnelManager::new(logger::exe_dir().join("wireguard.dll")));
+    let manager = Arc::new(TunnelManager::new(WireGuardNt::new(logger::exe_dir().join("wireguard.dll"))));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()?;
     let result = runtime.block_on(pipe::serve(Arc::clone(&manager), shutdown));
-    manager.disconnect();
+    manager.disconnect(None);
     result
 }

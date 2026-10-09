@@ -63,7 +63,9 @@ async fn dispatch(req: Request, manager: &Arc<TunnelManager>) -> Response {
             }
         }
         Request::Status => tokio::task::spawn_blocking(move || Ok(m.status())).await,
-        Request::Disconnect => tokio::task::spawn_blocking(move || Ok(m.disconnect())).await,
+        Request::Disconnect { name } => {
+            tokio::task::spawn_blocking(move || Ok(m.disconnect(name.as_deref()))).await
+        }
         Request::Connect { name, config } => {
             tokio::task::spawn_blocking(move || m.connect(&name, &config)).await
         }

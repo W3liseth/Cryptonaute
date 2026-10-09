@@ -1,5 +1,6 @@
 //! Configuration IP de l'interface WireGuard via l'API IP Helper :
-//! adresses, routes vers les `AllowedIPs`, MTU, métrique et DNS.
+//! adresses, routes vers les `AllowedIPs`, MTU, métrique et DNS, ainsi que les
+//! routes qui épinglent les endpoints d'un tunnel partiel sur la passerelle physique.
 
 use std::collections::BTreeSet;
 use std::net::IpAddr;
@@ -11,10 +12,11 @@ use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::{ERROR_OBJECT_ALREADY_EXISTS, NO_ERROR, WIN32_ERROR};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     ConvertInterfaceLuidToGuid, CreateIpForwardEntry2, CreateUnicastIpAddressEntry,
-    GetIpInterfaceEntry, InitializeIpForwardEntry, InitializeIpInterfaceEntry,
-    InitializeUnicastIpAddressEntry, SetInterfaceDnsSettings, SetIpInterfaceEntry,
-    DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6,
-    DNS_SETTING_NAMESERVER, DNS_SETTING_SEARCHLIST, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
+    DeleteIpForwardEntry2, FreeMibTable, GetIpForwardTable2, GetIpInterfaceEntry,
+    InitializeIpForwardEntry, InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry,
+    SetInterfaceDnsSettings, SetIpInterfaceEntry, DNS_INTERFACE_SETTINGS,
+    DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
+    DNS_SETTING_SEARCHLIST, MIB_IPFORWARD_ROW2, MIB_IPFORWARD_TABLE2, MIB_IPINTERFACE_ROW,
     MIB_UNICASTIPADDRESS_ROW,
 };
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
@@ -24,6 +26,11 @@ use windows_sys::Win32::Networking::WinSock::{
 };
 
 const DEFAULT_MTU: u32 = 1420;
+/// Métrique d'interface d'un tunnel complet : priorité maximale, y compris pour le DNS.
+const FULL_TUNNEL_METRIC: u32 = 0;
+/// Métrique d'un tunnel partiel : ses réseaux restent prioritaires (préfixe plus
+/// long), mais le DNS d'un tunnel complet actif passe avant le sien.
+const SPLIT_TUNNEL_METRIC: u32 = 5;
 
 fn os_err(context: &str, code: WIN32_ERROR) -> anyhow::Error {
     anyhow::anyhow!(
@@ -98,8 +105,8 @@ fn add_route(luid_val: u64, net: &IpNet) -> Result<(), WIN32_ERROR> {
     Ok(())
 }
 
-/// Fixe MTU et métrique 0 (priorité maximale) pour une famille d'adresses.
-fn set_interface_params(luid_val: u64, family: ADDRESS_FAMILY, mtu: u32) -> Result<(), WIN32_ERROR> {
+/// Fixe MTU et métrique d'interface pour une famille d'adresses.
+fn set_interface_params(luid_val: u64, family: ADDRESS_FAMILY, mtu: u32, metric: u32) -> Result<(), WIN32_ERROR> {
     // SAFETY: lecture-modification-écriture de la ligne d'interface fournie par l'API.
     unsafe {
         let mut row: MIB_IPINTERFACE_ROW = std::mem::zeroed();
@@ -111,7 +118,7 @@ fn set_interface_params(luid_val: u64, family: ADDRESS_FAMILY, mtu: u32) -> Resu
             return Err(err);
         }
         row.UseAutomaticMetric = 0;
-        row.Metric = 0;
+        row.Metric = metric;
         row.NlMtu = mtu;
         row.SitePrefixLength = 0;
         if family == AF_INET6 {
@@ -173,14 +180,15 @@ fn set_dns(guid: GUID, ipv6: bool, servers: &[IpAddr], search: Option<&[String]>
     Ok(())
 }
 
-pub fn configure(luid_val: u64, cfg: &WgConfig) -> anyhow::Result<()> {
+pub fn configure(luid_val: u64, cfg: &WgConfig, full_tunnel: bool) -> anyhow::Result<()> {
     let iface = &cfg.interface;
     let mtu = iface.mtu.map(u32::from).unwrap_or(DEFAULT_MTU);
+    let metric = if full_tunnel { FULL_TUNNEL_METRIC } else { SPLIT_TUNNEL_METRIC };
     let has_v4 = iface.addresses.iter().any(|a| a.addr().is_ipv4());
     let has_v6 = iface.addresses.iter().any(|a| a.addr().is_ipv6());
 
     for (family, present) in [(AF_INET, has_v4), (AF_INET6, has_v6)] {
-        if let Err(err) = set_interface_params(luid_val, family, mtu) {
+        if let Err(err) = set_interface_params(luid_val, family, mtu, metric) {
             if present {
                 return Err(os_err("paramétrage de l'interface", err));
             }
@@ -230,5 +238,91 @@ pub fn clear_dns(luid_val: u64) {
     if let Ok(guid) = interface_guid(luid_val) {
         let _ = set_dns(guid, false, &[], Some(&[]));
         let _ = set_dns(guid, true, &[], None);
+    }
+}
+
+/// Route d'hôte vers un endpoint, créée par [`pin_endpoints`]. Elle peut être
+/// partagée par plusieurs tunnels joignant le même serveur.
+#[derive(Clone)]
+pub struct PinnedRoute {
+    pub ip: IpAddr,
+    row: MIB_IPFORWARD_ROW2,
+}
+
+// SAFETY: simple copie d'une ligne de la table de routage, sans pointeur.
+unsafe impl Send for PinnedRoute {}
+
+fn interface_metric(luid_val: u64, family: ADDRESS_FAMILY) -> Option<u32> {
+    // SAFETY: ligne initialisée par l'API puis lue.
+    unsafe {
+        let mut row: MIB_IPINTERFACE_ROW = std::mem::zeroed();
+        InitializeIpInterfaceEntry(&mut row);
+        row.InterfaceLuid = luid(luid_val);
+        row.Family = family;
+        (GetIpInterfaceEntry(&mut row) == NO_ERROR && row.Connected != 0).then_some(row.Metric)
+    }
+}
+
+/// Meilleure route par défaut qui ne passe par aucun des adaptateurs `excluded`.
+fn physical_default_route(family: ADDRESS_FAMILY, excluded: &[u64]) -> Option<MIB_IPFORWARD_ROW2> {
+    let mut table: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
+    // SAFETY: table allouée par l'API, parcourue dans ses bornes puis libérée.
+    unsafe {
+        if GetIpForwardTable2(family, &mut table) != NO_ERROR {
+            return None;
+        }
+        let rows = std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize);
+        let best = rows
+            .iter()
+            .filter(|r| r.DestinationPrefix.PrefixLength == 0 && !excluded.contains(&r.InterfaceLuid.Value))
+            .filter_map(|r| Some((r.Metric.saturating_add(interface_metric(r.InterfaceLuid.Value, family)?), *r)))
+            .min_by_key(|(metric, _)| *metric)
+            .map(|(_, r)| r);
+        FreeMibTable(table as *const _);
+        best
+    }
+}
+
+/// Fait passer le trafic vers chaque endpoint par la passerelle physique, quelle
+/// que soit la route par défaut des autres tunnels. Échoue sans conséquence : le
+/// tunnel fonctionne alors à travers le tunnel complet.
+pub fn pin_endpoints(endpoints: &[IpAddr], excluded: &[u64]) -> Vec<PinnedRoute> {
+    let mut pinned = Vec::new();
+    for &ip in endpoints.iter().collect::<BTreeSet<_>>() {
+        let family = family_of(&ip);
+        let Some(gateway) = physical_default_route(family, excluded) else {
+            log::warn!("aucune passerelle physique trouvée pour joindre {ip}");
+            continue;
+        };
+        // SAFETY: ligne initialisée par l'API puis complétée champ par champ.
+        unsafe {
+            let mut row: MIB_IPFORWARD_ROW2 = std::mem::zeroed();
+            InitializeIpForwardEntry(&mut row);
+            row.InterfaceLuid = gateway.InterfaceLuid;
+            row.NextHop = gateway.NextHop;
+            row.Metric = 0;
+            write_sockaddr(&mut row.DestinationPrefix.Prefix, ip);
+            row.DestinationPrefix.PrefixLength = if ip.is_ipv4() { 32 } else { 128 };
+            match CreateIpForwardEntry2(&row) {
+                NO_ERROR => pinned.push(PinnedRoute { ip, row }),
+                // Déjà posée (autre tunnel vers le même serveur) : on ne la retirera pas.
+                ERROR_OBJECT_ALREADY_EXISTS => {}
+                err => log::warn!(
+                    "route vers l'endpoint {ip} impossible : {}",
+                    std::io::Error::from_raw_os_error(err as i32)
+                ),
+            }
+        }
+    }
+    pinned
+}
+
+pub fn unpin(routes: &[PinnedRoute]) {
+    for route in routes {
+        // SAFETY: ligne créée par `pin_endpoints`.
+        let err = unsafe { DeleteIpForwardEntry2(&route.row) };
+        if err != NO_ERROR {
+            log::warn!("suppression d'une route d'endpoint : {}", std::io::Error::from_raw_os_error(err as i32));
+        }
     }
 }

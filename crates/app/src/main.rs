@@ -13,7 +13,7 @@ mod store;
 mod tray;
 
 use cryptonaute_common::config::{self, TunnelSummary, WgConfig};
-use cryptonaute_common::ipc::{Request, Response, TunnelStatus};
+use cryptonaute_common::ipc::{Request, Response, ServiceStatus};
 use serde::Serialize;
 use tauri::Manager;
 
@@ -33,7 +33,7 @@ struct TunnelEntry {
 struct ServiceView {
     available: bool,
     version: Option<String>,
-    status: Option<TunnelStatus>,
+    status: Option<ServiceStatus>,
     error: Option<String>,
 }
 
@@ -63,7 +63,7 @@ fn entry(store: &Store, name: String) -> TunnelEntry {
     }
 }
 
-pub(crate) fn status_from(resp: Result<Response, ClientError>) -> Result<TunnelStatus, String> {
+pub(crate) fn status_from(resp: Result<Response, ClientError>) -> Result<ServiceStatus, String> {
     match resp.map_err(|e| e.to_string())? {
         Response::Status(s) => Ok(s),
         Response::Error { message } => Err(message),
@@ -166,8 +166,9 @@ async fn service_info() -> Result<ServiceView, String> {
     .await
 }
 
-/// Charge la configuration chiffrée du tunnel et demande son activation au service.
-pub(crate) fn connect_tunnel(name: &str) -> Result<TunnelStatus, String> {
+/// Charge la configuration chiffrée du tunnel et demande son activation au service,
+/// à côté des tunnels déjà actifs.
+pub(crate) fn connect_tunnel(name: &str) -> Result<ServiceStatus, String> {
     let config = Store::open()?.load(name)?;
     status_from(client::request(&Request::Connect {
         name: name.to_string(),
@@ -175,18 +176,19 @@ pub(crate) fn connect_tunnel(name: &str) -> Result<TunnelStatus, String> {
     }))
 }
 
-pub(crate) fn disconnect_tunnel() -> Result<TunnelStatus, String> {
-    status_from(client::request(&Request::Disconnect))
+/// Déconnecte le tunnel `name`, ou tous les tunnels.
+pub(crate) fn disconnect_tunnel(name: Option<String>) -> Result<ServiceStatus, String> {
+    status_from(client::request(&Request::Disconnect { name }))
 }
 
 #[tauri::command]
-async fn connect(name: String) -> Result<TunnelStatus, String> {
+async fn connect(name: String) -> Result<ServiceStatus, String> {
     blocking(move || connect_tunnel(&name)).await
 }
 
 #[tauri::command]
-async fn disconnect() -> Result<TunnelStatus, String> {
-    blocking(disconnect_tunnel).await
+async fn disconnect(name: Option<String>) -> Result<ServiceStatus, String> {
+    blocking(move || disconnect_tunnel(name)).await
 }
 
 #[derive(Serialize)]

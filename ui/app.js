@@ -41,11 +41,10 @@ const state = {
   selected: null,
   filter: '',
   service: { available: null, error: null },
-  status: null,          // TunnelStatus renvoyé par le service
+  status: null,          // ServiceStatus renvoyé par le service : { tunnels: [...] }
   pending: null,         // { kind: 'connect'|'disconnect', name }
   lastError: null,       // { name, message }
-  samples: [],           // { t, rx, tx } débits en octets/s
-  prev: null,            // { t, rx, tx, tunnel } pour le calcul des débits
+  traffic: new Map(),    // nom → { since, prev: { t, rx, tx }, samples: [{ t, rx, tx }] } (octets/s)
 };
 
 /* ---------- Formatage ---------- */
@@ -104,20 +103,23 @@ async function loadTunnels(selectName) {
   }
   if (selectName !== undefined) state.selected = selectName;
   if (!state.tunnels.some((t) => t.name === state.selected)) {
-    const active = state.status?.state === 'connected' ? state.status.tunnel : null;
-    state.selected = state.tunnels.find((t) => t.name === active)?.name ?? state.tunnels[0]?.name ?? null;
+    state.selected = state.tunnels.find((t) => isActive(t.name))?.name ?? state.tunnels[0]?.name ?? null;
   }
   renderList();
   renderDetail();
 }
 
 const current = () => state.tunnels.find((t) => t.name === state.selected) ?? null;
-const activeName = () => (state.status?.state === 'connected' ? state.status.tunnel : null);
+/* Tunnels actifs (plusieurs possibles), dans l'ordre de leur activation. */
+const activeList = () => state.status?.tunnels ?? [];
+const statusOf = (name) => activeList().find((s) => s.name === name) ?? null;
+const isActive = (name) => !!statusOf(name);
+const quoteList = (names) => names.map((n) => `« ${n} »`).join(', ');
 
 function uiState() {
-  if (state.pending) return state.pending.kind === 'connect' ? 'connecting' : 'disconnecting';
   const t = current();
-  if (t && activeName() === t.name) return 'connected';
+  if (t && state.pending?.name === t.name) return state.pending.kind === 'connect' ? 'connecting' : 'disconnecting';
+  if (t && isActive(t.name)) return 'connected';
   if (t && state.lastError?.name === t.name) return 'error';
   return 'disconnected';
 }
@@ -162,7 +164,7 @@ function renderList() {
   for (const li of list.querySelectorAll('.tunnel-item')) {
     const t = state.tunnels.find((x) => x.name === li.dataset.name);
     if (!t) continue;
-    const active = activeName() === t.name;
+    const active = isActive(t.name);
     const busy = state.pending?.name === t.name;
     li.classList.toggle('selected', t.name === state.selected);
     li.setAttribute('aria-selected', t.name === state.selected);
@@ -174,7 +176,7 @@ function renderList() {
       : busy
         ? (state.pending.kind === 'connect' ? 'Connexion…' : 'Déconnexion…')
         : active
-          ? `Connecté · ${fmtRate(lastRate('rx'))} ↓`
+          ? `Connecté · ${fmtRate(lastRate('rx', t.name))} ↓`
           : t.summary.peers[0]?.endpoint ?? '—';
   }
 }
@@ -246,8 +248,11 @@ function applyState() {
   const t = current();
   if (!t) return;
 
-  const st = state.status;
-  const isActive = activeName() === t.name;
+  const st = statusOf(t.name);
+  const active = !!st;
+  const others = activeList().filter((s) => s.name !== t.name);
+  const otherFull = others.find((s) => s.fullTunnel);
+  const othersSplit = others.filter((s) => !s.fullTunnel).map((s) => s.name);
   const label = $('#state-label');
   const sub = $('#state-sub');
   const power = $('#power');
@@ -273,6 +278,10 @@ function applyState() {
       } else if (hs && now() - hs > 180) {
         sub.textContent = 'Le serveur ne répond plus depuis quelques minutes';
         sub.classList.add('warn');
+      } else if (!t.summary.fullTunnel && otherFull) {
+        sub.textContent = `Ses réseaux passent par ce tunnel, le reste du trafic par « ${otherFull.name} »`;
+      } else if (t.summary.fullTunnel && othersSplit.length) {
+        sub.textContent = `Tout le trafic passe par ce tunnel, sauf les réseaux de ${quoteList(othersSplit)}`;
       } else {
         sub.textContent = `Trafic chiffré via ${st.endpoint ?? 'le serveur'}`;
       }
@@ -285,21 +294,24 @@ function applyState() {
     default:
       label.textContent = 'Déconnecté';
       if (state.service.available === false) sub.textContent = 'Le service Cryptonaute est requis pour se connecter';
-      else if (activeName()) sub.textContent = `« ${activeName()} » est actif — cliquez pour basculer sur ce tunnel`;
-      else sub.textContent = 'Cliquez sur le bouton pour vous connecter';
+      else if (t.error || !others.length) sub.textContent = 'Cliquez sur le bouton pour vous connecter';
+      else if (t.summary.fullTunnel && otherFull) sub.textContent = `Remplacera « ${otherFull.name} » : un seul tunnel complet à la fois`;
+      else if (t.summary.fullTunnel) sub.textContent = `S’ajoutera à ${quoteList(othersSplit)}, qui gardera ses réseaux`;
+      else if (otherFull) sub.textContent = `S’ajoutera à « ${otherFull.name} » : ses réseaux passeront par ce tunnel`;
+      else sub.textContent = `S’ajoutera à ${quoteList(others.map((s) => s.name))}`;
   }
-  power.title = isActive ? 'Se déconnecter' : 'Se connecter';
+  power.title = active ? 'Se déconnecter' : 'Se connecter';
 
-  $('#timer').textContent = isActive && st.connectedSince ? fmtDuration(now() - st.connectedSince) : '00:00:00';
-  $('#q-handshake').textContent = isActive
+  $('#timer').textContent = active && st.connectedSince ? fmtDuration(now() - st.connectedSince) : '00:00:00';
+  $('#q-handshake').textContent = active
     ? (st.lastHandshake ? fmtAgo(Math.floor(now() - st.lastHandshake)) : 'en attente…')
     : '—';
-  if (isActive && st.endpoint) $('#q-endpoint').textContent = st.endpoint;
+  if (active && st.endpoint) $('#q-endpoint').textContent = st.endpoint;
 
-  setValue('#s-rx', fmtBytes(isActive ? st.rxBytes : 0));
-  setValue('#s-tx', fmtBytes(isActive ? st.txBytes : 0));
-  $('#s-rx-rate').textContent = fmtRate(isActive ? lastRate('rx') : 0);
-  $('#s-tx-rate').textContent = fmtRate(isActive ? lastRate('tx') : 0);
+  setValue('#s-rx', fmtBytes(active ? st.rxBytes : 0));
+  setValue('#s-tx', fmtBytes(active ? st.txBytes : 0));
+  $('#s-rx-rate').textContent = fmtRate(active ? lastRate('rx', t.name) : 0);
+  $('#s-tx-rate').textContent = fmtRate(active ? lastRate('tx', t.name) : 0);
 }
 
 function setValue(sel, text) {
@@ -310,7 +322,8 @@ function setValue(sel, text) {
   }
 }
 
-const lastRate = (k) => state.samples.length ? state.samples[state.samples.length - 1][k] : 0;
+const samplesOf = (name) => state.traffic.get(name)?.samples ?? [];
+const lastRate = (k, name) => samplesOf(name).at(-1)?.[k] ?? 0;
 
 /* ---------- Service & sondage ---------- */
 function renderService() {
@@ -337,47 +350,56 @@ async function poll() {
   }
   if (wasAvailable !== view.available) renderService();
 
-  const prevActive = activeName();
+  const prevActive = activeList().map((s) => s.name);
   if (!state.pending) state.status = view.status ?? null;
-  const st = state.status;
+  sampleTraffic();
 
-  // Débits instantanés à partir des compteurs cumulés
-  const t = now();
-  if (st?.state === 'connected') {
-    const p = state.prev;
-    if (p && p.tunnel === st.tunnel && t > p.t) {
-      const dt = t - p.t;
-      state.samples.push({ t, rx: Math.max(0, (st.rxBytes - p.rx) / dt), tx: Math.max(0, (st.txBytes - p.tx) / dt) });
-    } else {
-      state.samples.push({ t, rx: 0, tx: 0 });
-    }
-    state.prev = { t, rx: st.rxBytes, tx: st.txBytes, tunnel: st.tunnel };
-  } else {
-    state.prev = null;
-    state.samples.push({ t, rx: 0, tx: 0 });
-  }
-  state.samples = state.samples.filter((s) => t - s.t < 75);
-
-  if (prevActive && !activeName() && !state.pending) {
-    toast(`Tunnel « ${prevActive} » déconnecté`, 'info');
+  if (!state.pending) {
+    for (const name of prevActive.filter((n) => !isActive(n))) toast(`Tunnel « ${name} » déconnecté`, 'info');
   }
   renderList();
   applyState();
+}
+
+/* Débits instantanés de chaque tunnel actif, à partir des compteurs cumulés. */
+function sampleTraffic() {
+  const t = now();
+  for (const st of activeList()) {
+    let tr = state.traffic.get(st.name);
+    if (!tr || tr.since !== st.connectedSince) {
+      tr = { since: st.connectedSince, prev: null, samples: [] };
+      state.traffic.set(st.name, tr);
+    }
+    const p = tr.prev;
+    const dt = p ? t - p.t : 0;
+    tr.samples.push(dt > 0
+      ? { t, rx: Math.max(0, (st.rxBytes - p.rx) / dt), tx: Math.max(0, (st.txBytes - p.tx) / dt) }
+      : { t, rx: 0, tx: 0 });
+    tr.prev = { t, rx: st.rxBytes, tx: st.txBytes };
+    tr.samples = tr.samples.filter((s) => t - s.t < 75);
+  }
+  for (const name of [...state.traffic.keys()]) {
+    if (!isActive(name)) state.traffic.delete(name);
+  }
 }
 
 /* ---------- Connexion ---------- */
 async function togglePower() {
   const t = current();
   if (!t || t.error || state.pending) return;
-  const disconnecting = activeName() === t.name;
+  const disconnecting = isActive(t.name);
+  const before = activeList().map((s) => s.name);
   state.pending = { kind: disconnecting ? 'disconnect' : 'connect', name: t.name };
   state.lastError = null;
   renderList(); applyState();
   try {
-    const status = await invoke(disconnecting ? 'disconnect' : 'connect', disconnecting ? {} : { name: t.name });
-    state.status = status;
-    state.samples = []; state.prev = null;
+    state.status = await invoke(disconnecting ? 'disconnect' : 'connect', { name: t.name });
+    state.traffic.delete(t.name);
+    sampleTraffic();
     toast(disconnecting ? `Déconnecté de « ${t.name} »` : `Connecté à « ${t.name} »`, 'success');
+    // Un tunnel complet en remplace un autre : on le signale.
+    const replaced = before.filter((n) => n !== t.name && !isActive(n));
+    if (replaced.length) toast(`${quoteList(replaced)} déconnecté : un seul tunnel complet à la fois`, 'info', 5500);
   } catch (e) {
     if (!disconnecting) state.lastError = { name: t.name, message: String(e) };
     toast(String(e), 'error', 6500);
@@ -521,7 +543,7 @@ async function saveEditor() {
   const btn = $('#ed-save');
   btn.disabled = true;
   try {
-    const wasActive = editor.previous && activeName() === editor.previous;
+    const wasActive = editor.previous && isActive(editor.previous);
     await invoke('save_tunnel', { name, config: edConfig.value, previous: editor.previous });
     closeModal('#editor');
     toast(editor.previous ? `« ${name} » mis à jour` : `Tunnel « ${name} » ajouté`, 'success');
@@ -621,7 +643,7 @@ function askDelete() {
   const t = current();
   if (!t) return;
   $('#confirm-text').innerHTML = `Le tunnel <strong>${esc(t.name)}</strong> et sa clé privée seront définitivement supprimés de ce poste.`
-    + (activeName() === t.name ? '<br>Il sera d’abord déconnecté.' : '');
+    + (isActive(t.name) ? '<br>Il sera d’abord déconnecté.' : '');
   openModal('#confirm');
   $('#confirm-ok').focus();
 }
@@ -630,8 +652,8 @@ $('#confirm-ok').addEventListener('click', async () => {
   closeModal('#confirm');
   if (!t) return;
   try {
-    if (activeName() === t.name) {
-      state.status = await invoke('disconnect');
+    if (isActive(t.name)) {
+      state.status = await invoke('disconnect', { name: t.name });
     }
     await invoke('delete_tunnel', { name: t.name });
     toast(`« ${t.name} » supprimé`, 'success');
@@ -656,7 +678,7 @@ function drawChart() {
 
     const WINDOW = 60;
     const t = now() - 1; // léger retard pour un défilement fluide entre deux mesures
-    const pts = state.samples;
+    const pts = samplesOf(state.selected);
     const peak = Math.max(1024, ...pts.map((p) => Math.max(p.rx, p.tx)));
     chart.max += (peak * 1.25 - chart.max) * 0.08; // mise à l'échelle amortie
     const pad = { t: 10, b: 20, l: 4, r: 56 };
@@ -787,7 +809,7 @@ function renderOptions(o) {
 
 async function openOptions() {
   try { renderOptions(await invoke('get_options')); } catch (e) { toast(String(e), 'error'); return; }
-  const appVersion = TAURI ? await TAURI.app.getVersion().catch(() => null) : '0.3.0 (démo)';
+  const appVersion = TAURI ? await TAURI.app.getVersion().catch(() => null) : '0.4.0 (démo)';
   $('#about').textContent = `Cryptonaute ${appVersion ? 'v' + appVersion : ''}`;
   openModal('#options');
 }
@@ -836,7 +858,7 @@ function demoInvoke(cmd, args = {}) {
       'bureau-paris': '[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 10.8.0.2/32\nDNS = 10.8.0.1\n\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nEndpoint = vpn.paris.example:51820\nAllowedIPs = 0.0.0.0/0, ::/0\nPersistentKeepalive = 25\n',
       'homelab': '[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 192.168.50.7/24\n\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nEndpoint = 82.64.12.9:51820\nAllowedIPs = 192.168.1.0/24, 192.168.50.0/24\n',
     },
-    active: null, since: 0, rx: 0, tx: 0,
+    active: [], // { name, full, since, rx, tx }
   });
   const summary = (text) => {
     const get = (k) => [...text.matchAll(new RegExp(`^\\s*${k}\\s*=\\s*(.+)$`, 'gim'))].flatMap((m) => m[1].split(',').map((s) => s.trim()));
@@ -850,11 +872,12 @@ function demoInvoke(cmd, args = {}) {
       peers: [{ publicKey: get('PublicKey')[0] ?? '', endpoint: get('Endpoint')[0], allowedIps: allowed, persistentKeepalive: +get('PersistentKeepalive')[0] || null, hasPresharedKey: false }],
     };
   };
-  const status = () => {
-    if (!D.active) return { state: 'disconnected', tunnel: null, rxBytes: 0, txBytes: 0 };
-    D.rx += Math.random() * 900000 * (1 + Math.sin(Date.now() / 4000)); D.tx += Math.random() * 160000;
-    return { state: 'connected', tunnel: D.active, connectedSince: D.since, rxBytes: Math.round(D.rx), txBytes: Math.round(D.tx), lastHandshake: now() - 12, endpoint: '203.0.113.10:51820' };
-  };
+  const status = () => ({
+    tunnels: D.active.map((a) => {
+      a.rx += Math.random() * 900000 * (1 + Math.sin(Date.now() / 4000)); a.tx += Math.random() * 160000;
+      return { name: a.name, fullTunnel: a.full, connectedSince: a.since, rxBytes: Math.round(a.rx), txBytes: Math.round(a.tx), lastHandshake: now() - 12, endpoint: '203.0.113.10:51820' };
+    }),
+  });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   return (async () => {
     switch (cmd) {
@@ -866,9 +889,15 @@ function demoInvoke(cmd, args = {}) {
       case 'save_tunnel': summary(args.config); if (args.previous && args.previous !== args.name) delete D.configs[args.previous]; D.configs[args.name] = args.config; return { name: args.name, summary: summary(args.config) };
       case 'delete_tunnel': delete D.configs[args.name]; return null;
       case 'service_status': return { available: true, status: status() };
-      case 'service_info': return { available: true, version: '0.3.0 (démo)' };
-      case 'connect': await wait(1400); D.active = args.name; D.since = now(); D.rx = 0; D.tx = 0; return status();
-      case 'disconnect': await wait(600); D.active = null; return status();
+      case 'service_info': return { available: true, version: '0.4.0 (démo)' };
+      case 'connect': {
+        await wait(1400);
+        const full = summary(D.configs[args.name]).fullTunnel;
+        D.active = D.active.filter((a) => a.name !== args.name && !(full && a.full));
+        D.active.push({ name: args.name, full, since: now(), rx: 0, tx: 0 });
+        return status();
+      }
+      case 'disconnect': await wait(600); D.active = D.active.filter((a) => args.name != null && a.name !== args.name); return status();
       case 'get_options': return { showTray: D.showTray ?? true, autostart: !!D.autostart };
       case 'set_options':
         await wait(150);

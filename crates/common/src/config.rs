@@ -399,6 +399,39 @@ impl WgConfig {
             .any(|n| n.prefix_len() == 0)
     }
 
+    /// Réseaux routés spécifiquement par le tunnel (routes par défaut exclues).
+    fn specific_routes(&self) -> impl Iterator<Item = &IpNet> {
+        self.peers
+            .iter()
+            .flat_map(|p| &p.allowed_ips)
+            .filter(|n| n.prefix_len() > 0)
+    }
+
+    /// Indique pourquoi ce tunnel ne peut pas être actif en même temps que `other`.
+    ///
+    /// Les routes par défaut ne sont pas en conflit : les routes plus spécifiques
+    /// d'un tunnel partiel l'emportent sur celles d'un tunnel complet. Deux tunnels
+    /// complets simultanés sont en revanche gérés par le service (remplacement).
+    pub fn conflict_with(&self, other: &WgConfig) -> Option<String> {
+        for a in self.specific_routes() {
+            for b in other.specific_routes() {
+                if a.contains(&b.network()) || b.contains(&a.network()) {
+                    return Some(if a == b {
+                        format!("tous deux routent {a}")
+                    } else {
+                        format!("leurs routes {a} et {b} se chevauchent")
+                    });
+                }
+            }
+        }
+        for a in &self.interface.addresses {
+            if other.interface.addresses.iter().any(|b| a.addr() == b.addr()) {
+                return Some(format!("tous deux utilisent l'adresse {}", a.addr()));
+            }
+        }
+        None
+    }
+
     pub fn summary(&self) -> TunnelSummary {
         TunnelSummary {
             public_key: self.interface.private_key.public_key().to_base64(),
@@ -587,6 +620,38 @@ PersistentKeepalive = 25
         assert!(validate_tunnel_name("com1").is_err());
         assert!(validate_tunnel_name("../x").is_err());
         assert!(validate_tunnel_name(&"x".repeat(33)).is_err());
+    }
+
+    fn tunnel(address: &str, allowed: &str) -> WgConfig {
+        WgConfig::parse(&format!(
+            "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = {address}\n\
+             [Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\n\
+             Endpoint = 198.51.100.1:51820\nAllowedIPs = {allowed}\n"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn coexistence() {
+        let usa = tunnel("10.2.0.2/32", "0.0.0.0/0, ::/0");
+        let infra = tunnel("10.8.0.2/32", "10.8.0.0/24, 192.168.10.0/24");
+        // Un tunnel partiel coexiste avec un tunnel complet.
+        assert!(usa.conflict_with(&infra).is_none());
+        assert!(infra.conflict_with(&usa).is_none());
+
+        // Routes qui se chevauchent : ambiguïté, refusée dans les deux sens.
+        let lab = tunnel("10.9.0.2/32", "192.168.0.0/16");
+        assert!(infra.conflict_with(&lab).unwrap().contains("192.168.10.0/24"));
+        assert!(lab.conflict_with(&infra).is_some());
+        let same = tunnel("10.9.0.3/32", "10.8.0.0/24");
+        assert!(infra.conflict_with(&same).unwrap().contains("tous deux routent"));
+
+        // Même adresse d'interface.
+        let twin = tunnel("10.8.0.2/24", "172.16.0.0/12");
+        assert!(infra.conflict_with(&twin).unwrap().contains("10.8.0.2"));
+
+        let other = tunnel("10.10.0.2/32", "172.16.0.0/12");
+        assert!(infra.conflict_with(&other).is_none());
     }
 
     #[test]

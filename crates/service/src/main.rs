@@ -7,6 +7,7 @@
 
 mod ipc;
 mod logger;
+mod manager;
 
 #[cfg(windows)]
 #[path = "windows/mod.rs"]

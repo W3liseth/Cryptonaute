@@ -11,17 +11,20 @@ use std::sync::Arc;
 
 pub use tunnel::TunnelManager;
 
-/// Exécute le démon au premier plan jusqu'à SIGTERM ou SIGINT, puis ferme le tunnel.
+/// Exécute le démon au premier plan jusqu'à SIGTERM ou SIGINT, puis ferme les tunnels.
 pub fn run() -> anyhow::Result<()> {
-    let manager = Arc::new(TunnelManager::new());
+    let manager = Arc::new(TunnelManager::new(tunnel::Defguard));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()?;
     log::info!("démarrage du démon Cryptonaute {}", env!("CARGO_PKG_VERSION"));
-    // Règles laissées par une exécution précédente interrompue.
+    // Interfaces et règles laissées par une exécution précédente interrompue.
     #[cfg(target_os = "linux")]
-    firewall::remove();
+    {
+        tunnel::remove_stale_interfaces();
+        firewall::remove();
+    }
     let result = runtime.block_on(async {
         let shutdown = async {
             use tokio::signal::unix::{signal, SignalKind};
@@ -33,7 +36,7 @@ pub fn run() -> anyhow::Result<()> {
         };
         server::serve(Arc::clone(&manager), shutdown).await
     });
-    manager.disconnect();
+    manager.disconnect(None);
     log::info!("démon arrêté");
     result
 }

@@ -38,8 +38,11 @@
   temps réel, statistiques (octets reçus/envoyés, débits, dernière poignée de main,
   durée de connexion).
 - **Icône dans la zone de notification** (ou la barre des menus sous macOS) : verte
-  lorsqu'un tunnel est actif, menu pour (dé)connecter un tunnel en un clic.
+  lorsqu'un tunnel est actif, menu pour (dé)connecter chaque tunnel en un clic.
 - **Options** : affichage de l'icône de notification, lancement à l'ouverture de session.
+- **Plusieurs tunnels simultanés** : un tunnel complet (ex. une sortie aux États-Unis)
+  et des tunnels partiels (ex. votre infrastructure) peuvent être actifs ensemble ; les
+  réseaux des tunnels partiels restent prioritaires (voir [Tunnels simultanés](#tunnels-simultanés)).
 - **Tunnel complet ou partiel**, DNS du tunnel, MTU, clé pré-partagée, keepalive.
 - **Configurations protégées** dans le profil de l'utilisateur (voir [Sécurité](#sécurité)).
 
@@ -115,9 +118,33 @@ par-dessus suffit, sans désinstaller l'ancienne version au préalable :
 | Modifier / supprimer | boutons en haut à droite du tunnel, `Suppr` pour supprimer |
 | Options | bouton ⚙ en bas de la barre latérale, `Ctrl+,` (`⌘,`), ou *Options…* dans le menu de l'icône |
 
-Un seul tunnel est actif à la fois : activer un autre tunnel bascule automatiquement.
 Fermer la fenêtre la masque dans la zone de notification (si l'icône est activée) ;
-le tunnel reste actif, géré par le service, même lorsque l'application est quittée.
+les tunnels restent actifs, gérés par le service, même lorsque l'application est quittée.
+
+### Tunnels simultanés
+
+Plusieurs tunnels peuvent être actifs en même temps, chacun sur sa propre interface.
+Le système choisit la route la plus précise : par exemple, avec
+
+- « usa » : `AllowedIPs = 0.0.0.0/0, ::/0` (tunnel complet),
+- « infra » : `AllowedIPs = 10.8.0.0/24, 192.168.10.0/24` (tunnel partiel),
+
+le trafic vers `10.8.0.0/24` et `192.168.10.0/24` passe par « infra », et tout le reste
+par « usa ». Le serveur d'« infra » est joint directement, sans transiter par « usa ».
+L'interface indique, pour chaque tunnel, comment le trafic est réparti.
+
+Règles appliquées par le service :
+
+- **un seul tunnel complet à la fois** : en activer un second remplace le premier ;
+- **pas de réseaux qui se chevauchent** entre deux tunnels (ni d'adresse commune) :
+  l'activation est refusée avec un message indiquant le tunnel en conflit ;
+- **8 tunnels actifs** au plus.
+
+DNS : celui du tunnel complet répond à toutes les requêtes. Sous Linux avec
+systemd-resolved, les domaines de recherche (`DNS = 10.8.0.1, infra.lan`) d'un tunnel
+partiel sont résolus par ses propres serveurs. Sous Windows, le DNS du tunnel complet
+est prioritaire ; sous macOS, où le DNS est global, c'est celui du tunnel complet, ou à
+défaut celui du dernier tunnel activé.
 
 Les directives `PreUp`, `PostUp`, `PreDown`, `PostDown`, `Table`, `FwMark` et `SaveConfig`
 sont ignorées (et signalées à l'import) ; voir [Sécurité](#sécurité).
@@ -265,7 +292,10 @@ cryptonaute/
 
 - **Pas de kill-switch** ni de blocage des fuites DNS hors tunnel (pare-feu WFP sous
   Windows, nftables/pf ailleurs).
-- **Un seul tunnel actif** à la fois ; MTU fixe (1420 par défaut) sans détection automatique.
+- **MTU fixe** (1420 par défaut) sans détection automatique.
+- **Tunnels simultanés** : la route directe vers le serveur d'un tunnel partiel est
+  fixée à la connexion ; après un changement de réseau (Wi-Fi → Ethernet), reconnecter
+  ce tunnel. Pas de résolution DNS par domaine (NRPT) sous Windows ni macOS.
 - **Poste partagé** : tout utilisateur connecté peut désactiver le tunnel d'un autre.
 - **Paquets non signés** : signature Authenticode (Windows) et signature + notarisation
   Apple (macOS) à mettre en place pour une diffusion publique.
