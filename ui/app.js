@@ -776,8 +776,10 @@ document.addEventListener('click', (e) => {
   if (b) copyText(b.dataset.copy);
 });
 document.addEventListener('keydown', (e) => {
-  const modalOpen = !$('#editor').hidden || !$('#confirm').hidden || !$('#options').hidden || !$('#update').hidden;
+  const modalOpen = ['#editor', '#confirm', '#options', '#update', '#notes'].some((id) => !$(id).hidden);
   if (e.key === 'Escape') {
+    // Les patch notes s'ouvrent par-dessus les options : on ne ferme qu'elles.
+    if (!$('#notes').hidden) { closeModal('#notes'); return; }
     closeModal('#editor'); closeModal('#confirm'); closeModal('#options');
     if (!upd.installing) closeModal('#update');
     return;
@@ -810,12 +812,12 @@ function renderOptions(o) {
   $('#opt-boot-desc').textContent = o.showTray
     ? 'Démarre Cryptonaute discrètement dans la zone de notification à l’ouverture de votre session.'
     : 'Ouvre la fenêtre de Cryptonaute à l’ouverture de votre session.';
-  $('#win-close').title = o.showTray ? 'Fermer (Cryptonaute reste dans la zone de notification)' : 'Quitter';
+  $('#win-close').title = o.showTray ? 'Fermer (Cryptonaute reste dans la zone de notification)' : 'Quitter (les tunnels seront déconnectés)';
 }
 
 async function openOptions() {
   try { renderOptions(await invoke('get_options')); } catch (e) { toast(String(e), 'error'); return; }
-  const appVersion = TAURI ? await TAURI.app.getVersion().catch(() => null) : '0.5.0 (démo)';
+  const appVersion = TAURI ? await TAURI.app.getVersion().catch(() => null) : '0.5.1 (démo)';
   $('#about').textContent = `Cryptonaute ${appVersion ? 'v' + appVersion : ''}`;
   openModal('#options');
 }
@@ -913,8 +915,9 @@ async function installUpdate() {
 
 async function checkUpdateNow() {
   const btn = $('#opt-check');
+  const label = btn.querySelector('span');
   btn.disabled = true;
-  btn.textContent = 'Recherche…';
+  label.textContent = 'Recherche…';
   try {
     const info = await invoke('check_update');
     showUpdateBanner(info);
@@ -924,7 +927,7 @@ async function checkUpdateNow() {
     toast(String(e), 'error', 6000);
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Rechercher une mise à jour';
+    label.textContent = 'Rechercher une mise à jour';
   }
 }
 
@@ -932,6 +935,63 @@ $('#update-banner').addEventListener('click', openUpdate);
 $('#up-install').addEventListener('click', installUpdate);
 $('#up-page').addEventListener('click', () => invoke('open_release_page').catch((e) => toast(String(e), 'error')));
 $('#opt-check').addEventListener('click', checkUpdateNow);
+
+/* ---------- Patch notes ---------- */
+/* Mise en forme du texte d'une entrée : échappement, puis **gras** et `code`. */
+const inline = (text) => esc(text)
+  .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  .replace(/`([^`]+)`/g, '<code>$1</code>')
+  .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+/* CHANGELOG.md → [{ version, date, sections: [{ title, items }] }] */
+function parseChangelog(md) {
+  const releases = [];
+  let rel = null, sec = null;
+  for (const raw of md.split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    let m;
+    if ((m = line.match(/^##\s+(\S+)(?:\s+[—–-]\s+(.+))?$/))) {
+      rel = { version: m[1], date: m[2] ?? null, sections: [] };
+      releases.push(rel); sec = null;
+    } else if (rel && (m = line.match(/^###\s+(.+)$/))) {
+      sec = { title: m[1], items: [] };
+      rel.sections.push(sec);
+    } else if (rel && (m = line.match(/^\s*[-*]\s+(.+)$/))) {
+      if (!sec) { sec = { title: '', items: [] }; rel.sections.push(sec); }
+      sec.items.push(m[1]);
+    } else if (sec?.items.length && /^\s+\S/.test(line)) {
+      sec.items[sec.items.length - 1] += ' ' + line.trim(); // suite d'une entrée
+    }
+  }
+  return releases;
+}
+
+const fmtDate = (iso) => {
+  const d = iso && new Date(`${iso}T12:00:00`);
+  return d && !isNaN(d) ? d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+};
+
+async function openPatchNotes() {
+  let releases;
+  try { releases = parseChangelog(await invoke('patch_notes')); } catch (e) { toast(String(e), 'error'); return; }
+  const current = TAURI ? await TAURI.app.getVersion().catch(() => null) : '0.5.1';
+  $('#notes-list').innerHTML = releases.map((r, i) => `
+    <article class="release${r.version === current ? ' current' : ''}" style="animation-delay:${Math.min(i, 6) * 40}ms">
+      <div class="release-head">
+        <h4>Version ${esc(r.version)}</h4>
+        ${r.date ? `<span class="date">${esc(fmtDate(r.date))}</span>` : ''}
+        ${r.version === current ? '<span class="badge">Version installée</span>' : ''}
+      </div>
+      ${r.sections.map((s) => `
+        ${s.title ? `<h5>${esc(s.title)}</h5>` : ''}
+        <ul>${s.items.map((it) => `<li>${inline(it)}</li>`).join('')}</ul>`).join('')}
+    </article>`).join('') || '<p class="options-note">Aucune note de version.</p>';
+  $('#notes-list').scrollTop = 0;
+  openModal('#notes');
+}
+
+$('#opt-notes').addEventListener('click', openPatchNotes);
+$('#notes-page').addEventListener('click', () => invoke('open_release_page').catch((e) => toast(String(e), 'error')));
 if (TAURI) {
   TAURI.event.listen('update-available', ({ payload }) => {
     showUpdateBanner(payload);
@@ -998,7 +1058,7 @@ function demoInvoke(cmd, args = {}) {
       case 'save_tunnel': summary(args.config); if (args.previous && args.previous !== args.name) delete D.configs[args.previous]; D.configs[args.name] = args.config; return { name: args.name, summary: summary(args.config) };
       case 'delete_tunnel': delete D.configs[args.name]; return null;
       case 'service_status': return { available: true, status: status() };
-      case 'service_info': return { available: true, version: '0.5.0 (démo)' };
+      case 'service_info': return { available: true, version: '0.5.1 (démo)' };
       case 'connect': {
         await wait(1400);
         const full = summary(D.configs[args.name]).fullTunnel;
@@ -1011,10 +1071,11 @@ function demoInvoke(cmd, args = {}) {
       case 'update_status': return D.update ?? null;
       case 'check_update':
         await wait(700);
-        return (D.update = { version: '0.6.0', current: '0.5.0', asset: 'Cryptonaute_0.6.0_x64-setup.exe', size: 2300000, page: '#',
-          notes: "## Nouveautés\n* Mises à jour automatiques\n* Corrections diverses\n\n**Full Changelog**: v0.5.0...v0.6.0" });
+        return (D.update = { version: '0.6.0', current: '0.5.1', asset: 'Cryptonaute_0.6.0_x64-setup.exe', size: 2300000, page: '#',
+          notes: "## Nouveautés\n* Mises à jour automatiques\n* Corrections diverses\n\n**Full Changelog**: v0.5.1...v0.6.0" });
       case 'install_update': await wait(1200); throw 'mode démo : aucune installation';
       case 'open_release_page': return null;
+      case 'patch_notes': return fetch('/CHANGELOG.md').then((r) => (r.ok ? r.text() : '## 0.5.1 — 2026-10-09\n### Nouveautés\n- Aperçu hors de Tauri'));
       case 'set_options':
         await wait(150);
         if (args.showTray !== undefined) D.showTray = args.showTray;

@@ -285,12 +285,31 @@
           </span>
           <input type="checkbox" class="switch" id="opt-update" role="switch" />
         </label>
-        <p class="options-note">Ces réglages sont propres à votre compte et ne nécessitent aucun droit administrateur. Vos tunnels actifs restent gérés par le service, même lorsque l'application est fermée.</p>
+        <div class="options-actions">
+          <button class="btn" id="opt-check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7L21 8" /><path d="M21 3v5h-5" /></svg><span>Rechercher une mise à jour</span></button>
+          <button class="btn" id="opt-notes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></svg><span>Patch notes</span></button>
+        </div>
+        <p class="options-note">Ces réglages sont propres à votre compte et ne nécessitent aucun droit administrateur. Fermer la fenêtre garde vos tunnels actifs ; quitter Cryptonaute les déconnecte.</p>
       </div>
       <footer class="modal-foot">
         <span class="about" id="about"></span>
-        <button class="btn ghost" id="opt-check">Rechercher une mise à jour</button>
         <button class="btn primary" data-close>Terminé</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Patch notes -->
+  <div class="modal-backdrop" id="notes" hidden>
+    <div class="modal glass medium" role="dialog" aria-modal="true" aria-labelledby="notes-title">
+      <header class="modal-head">
+        <h3 id="notes-title">Patch notes</h3>
+        <button class="icon-btn sm" data-close aria-label="Fermer"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+      </header>
+      <div class="modal-body notes-body" id="notes-list"></div>
+      <footer class="modal-foot">
+        <button class="btn ghost" id="notes-page">Toutes les versions sur GitHub</button>
+        <span class="spacer"></span>
+        <button class="btn primary" data-close>Fermer</button>
       </footer>
     </div>
   </div>

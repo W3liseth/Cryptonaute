@@ -197,6 +197,25 @@ code, .mono { font-family: var(--mono); }
 .options-note { margin: 2px 4px 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .modal-foot .about { margin-right: auto; align-self: center; font-size: 12px; color: var(--muted); }
 .modal-foot .spacer { flex: 1; }
+.options-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.options-actions .btn { justify-content: center; }
+
+/* Patch notes */
+.modal.medium .notes-body { max-height: min(62vh, 560px); gap: 12px; }
+.release {
+  padding: 14px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border);
+  animation: banner-in .45s var(--spring) both;
+}
+.release.current { border-color: rgba(16,185,129,.4); background: linear-gradient(135deg, rgba(16,185,129,.10), rgba(34,211,238,.05)); }
+.release-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.release-head h4 { margin: 0; font-size: 15px; font-weight: 700; }
+.release-head .date { font-size: 12px; color: var(--muted); }
+.release-head .badge { margin-left: auto; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: rgba(16,185,129,.18); color: #6ee7b7; }
+.release h5 { margin: 12px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--cyan); font-weight: 600; }
+.release ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.release li { font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.release li strong { color: var(--text); }
+.release code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
 
 /* Mise à jour */
 .update-banner {

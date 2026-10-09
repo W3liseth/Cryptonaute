@@ -40,7 +40,7 @@
 - **Icône dans la zone de notification** (ou la barre des menus sous macOS) : verte
   lorsqu'un tunnel est actif, menu pour (dé)connecter chaque tunnel en un clic.
 - **Options** : affichage de l'icône de notification, lancement à l'ouverture de session,
-  mises à jour automatiques.
+  mises à jour automatiques, **Patch notes** (historique des versions).
 - **Mises à jour** : les nouvelles versions publiées sur GitHub sont signalées, puis
   installées en un clic après vérification de leur signature (voir [Mises à jour](#mises-à-jour)).
 - **Plusieurs tunnels simultanés** : un tunnel complet (ex. une sortie aux États-Unis)
@@ -121,8 +121,16 @@ par-dessus suffit, sans désinstaller l'ancienne version au préalable :
 | Modifier / supprimer | boutons en haut à droite du tunnel, `Suppr` pour supprimer |
 | Options | bouton ⚙ en bas de la barre latérale, `Ctrl+,` (`⌘,`), ou *Options…* dans le menu de l'icône |
 
-Fermer la fenêtre la masque dans la zone de notification (si l'icône est activée) ;
-les tunnels restent actifs, gérés par le service, même lorsque l'application est quittée.
+Fermer la fenêtre la masque dans la zone de notification (si l'icône est activée) et
+les tunnels restent actifs. **Quitter Cryptonaute déconnecte les tunnels** (menu de
+l'icône › *Quitter et déconnecter*, ou fermeture de la fenêtre sans icône de
+notification). Le service, lui, reste démarré : il est nécessaire pour se connecter
+sans droits administrateur et ne fait rien tant qu'aucun tunnel n'est actif.
+
+Si l'application s'arrête brutalement (plantage, fermeture de session), le service
+déconnecte les tunnels au bout de 15 secondes, sauf si elle est relancée entre-temps.
+Avec plusieurs sessions ouvertes sur le poste, les tunnels sont déconnectés quand la
+dernière application est quittée.
 
 ### Tunnels simultanés
 
@@ -281,6 +289,12 @@ et les installations existantes ne pourraient plus se mettre à jour automatique
 
 La version est définie à un seul endroit, dans [`Cargo.toml`](Cargo.toml)
 (`[workspace.package]`) ; l'application, le service et les installeurs la reprennent.
+
+Les évolutions de chaque version sont décrites dans [`CHANGELOG.md`](CHANGELOG.md),
+sous un titre `## X.Y.Z — date`. Ce fichier est intégré à l'application (*Options ›
+Patch notes*) et la section de la version publiée sert de notes à la release GitHub,
+affichées aussi dans la fenêtre de mise à jour. Pensez à le compléter avant d'incrémenter
+la version.
 
 ## Développement
 

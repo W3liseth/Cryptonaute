@@ -8,6 +8,7 @@
 mod autostart;
 mod client;
 mod paths;
+mod session;
 mod settings;
 mod store;
 mod tray;
@@ -68,7 +69,7 @@ pub(crate) fn status_from(resp: Result<Response, ClientError>) -> Result<Service
     match resp.map_err(|e| e.to_string())? {
         Response::Status(s) => Ok(s),
         Response::Error { message } => Err(message),
-        Response::Hello { .. } => Err("réponse inattendue du service".into()),
+        Response::Hello { .. } | Response::Session => Err("réponse inattendue du service".into()),
     }
 }
 
@@ -274,6 +275,12 @@ async fn check_update(app: tauri::AppHandle) -> Result<Option<updater::UpdateInf
     Ok(found)
 }
 
+/// Historique des versions (CHANGELOG.md du dépôt, intégré à l'application).
+#[tauri::command]
+fn patch_notes() -> &'static str {
+    include_str!("../../../CHANGELOG.md")
+}
+
 #[tauri::command]
 fn open_release_page(app: tauri::AppHandle) -> Result<(), String> {
     let page = update_status(app)
@@ -342,6 +349,7 @@ fn main() {
             app.manage(updater::UpdateState::default());
             tray::setup(app.handle(), prefs.show_tray)?;
             spawn_update_checks(app.handle().clone());
+            session::spawn();
             // Sans icône de notification, une fenêtre masquée serait inaccessible.
             if !start_hidden || !prefs.show_tray {
                 tray::show_main(app.handle());
@@ -375,7 +383,18 @@ fn main() {
             check_update,
             install_update,
             open_release_page,
+            patch_notes,
         ])
-        .run(tauri::generate_context!())
-        .expect("erreur au lancement de Cryptonaute");
+        .build(tauri::generate_context!())
+        .expect("erreur au lancement de Cryptonaute")
+        .run(|app, event| {
+            // Quitter l'application déconnecte les tunnels (s'il n'y a pas d'autre
+            // application ouverte) ; la fenêtre est masquée pendant ce temps.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.hide();
+                }
+                session::close();
+            }
+        });
 }

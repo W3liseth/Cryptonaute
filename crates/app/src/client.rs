@@ -178,15 +178,21 @@ mod transport {
     }
 }
 
-pub fn request(req: &Request) -> Result<Response, ClientError> {
+/// Connexion vérifiée au service.
+fn open() -> Result<transport::Stream, ClientError> {
     let stream = transport::connect()?;
     transport::verify_server(&stream)?;
-    let mut writer = &stream;
+    Ok(stream)
+}
+
+/// Envoie une requête et lit sa réponse (une ligne JSON chacune).
+fn exchange(stream: &transport::Stream, req: &Request) -> Result<Response, ClientError> {
+    let mut writer = stream;
     writer.write_all(&encode(req)).map_err(other)?;
     writer.flush().map_err(other)?;
 
     let mut line = String::new();
-    BufReader::new(&stream)
+    BufReader::new(stream)
         .take(MAX_MESSAGE_LEN as u64)
         .read_line(&mut line)
         .map_err(other)?;
@@ -194,4 +200,38 @@ pub fn request(req: &Request) -> Result<Response, ClientError> {
         return Err(other("réponse tronquée"));
     }
     serde_json::from_str(&line).map_err(other)
+}
+
+pub fn request(req: &Request) -> Result<Response, ClientError> {
+    exchange(&open()?, req)
+}
+
+fn expect(resp: Response, wanted: fn(&Response) -> bool) -> Result<(), ClientError> {
+    match resp {
+        r if wanted(&r) => Ok(()),
+        Response::Error { message } => Err(ClientError::Other(message)),
+        _ => Err(other("réponse inattendue")),
+    }
+}
+
+/// Session de l'application auprès du service (voir `Request::Attach`) : tant
+/// qu'elle est ouverte, le service sait qu'une application tourne.
+pub struct Session(transport::Stream);
+
+impl Session {
+    pub fn open() -> Result<Self, ClientError> {
+        let stream = open()?;
+        expect(exchange(&stream, &Request::Attach)?, |r| matches!(r, Response::Session))?;
+        Ok(Session(stream))
+    }
+
+    /// Signale au service que l'application est toujours là.
+    pub fn keepalive(&self) -> Result<(), ClientError> {
+        expect(exchange(&self.0, &Request::Hello)?, |r| matches!(r, Response::Hello { .. }))
+    }
+
+    /// Ferme la session ; le service déconnecte les tunnels s'il n'en reste aucune.
+    pub fn close(self) -> Result<(), ClientError> {
+        expect(exchange(&self.0, &Request::Detach)?, |r| matches!(r, Response::Session))
+    }
 }

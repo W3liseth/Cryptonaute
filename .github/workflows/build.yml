@@ -142,6 +142,7 @@ jobs:
     concurrency:
       group: release-${{ needs.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v7 # pour CHANGELOG.md
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -175,10 +176,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
+          # Notes : section « ## X.Y.Z » de CHANGELOG.md (aussi affichée par l'application),
+          # à défaut les notes générées par GitHub.
+          awk -v v="$VERSION" '/^## /{p = ($2 == v); next} p' CHANGELOG.md > notes.md
+          if grep -q '[^[:space:]]' notes.md; then NOTES=(--notes-file "$PWD/notes.md"); else NOTES=(--generate-notes); fi
           cd artifacts
           ls -l
           gh release create "v$VERSION" * \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Cryptonaute $VERSION" \
-            --generate-notes
+            "${NOTES[@]}"

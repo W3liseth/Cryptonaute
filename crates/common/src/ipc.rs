@@ -14,7 +14,8 @@ pub const PIPE_NAME: &str = r"\\.\pipe\Cryptonaute\service";
 /// Socket Unix du démon (Linux et macOS). Son dossier appartient à root.
 pub const SOCKET_PATH: &str = "/var/run/cryptonaute/cryptonaute.sock";
 /// Version 2 : plusieurs tunnels peuvent être actifs simultanément.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// Version 3 : sessions d'application (`Attach` / `Detach`).
+pub const PROTOCOL_VERSION: u32 = 3;
 /// Taille maximale d'un message (une ligne JSON).
 pub const MAX_MESSAGE_LEN: usize = 64 * 1024;
 /// Nombre maximal de tunnels actifs en même temps.
@@ -34,6 +35,14 @@ pub enum Request {
         #[serde(default)]
         name: Option<String>,
     },
+    /// Ouvre une session : l'application garde cette connexion ouverte tant
+    /// qu'elle tourne (en envoyant `Hello` de temps en temps). Quand la dernière
+    /// session se termine, le service déconnecte tous les tunnels : aussitôt après
+    /// un `Detach`, après un court délai si la connexion est simplement perdue
+    /// (plantage, fin de session), pour laisser à l'application le temps de revenir.
+    Attach,
+    /// Ferme la session : l'application est quittée.
+    Detach,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +50,8 @@ pub enum Request {
 pub enum Response {
     Hello { protocol: u32, version: String },
     Status(ServiceStatus),
+    /// Session ouverte (réponse à `Attach`) ou fermée (réponse à `Detach`).
+    Session,
     Error { message: String },
 }
 

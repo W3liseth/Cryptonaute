@@ -130,7 +130,13 @@ fn build_menu(app: &AppHandle, snap: &Snapshot) -> tauri::Result<Menu<Wry>> {
         .item(&MenuItem::with_id(app, "show", "Ouvrir Cryptonaute", true, None::<&str>)?)
         .item(&MenuItem::with_id(app, "options", "Options…", true, None::<&str>)?)
         .separator()
-        .item(&MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "quit",
+            if snap.active.is_empty() { "Quitter" } else { "Quitter et déconnecter" },
+            true,
+            None::<&str>,
+        )?)
         .build()
 }
 

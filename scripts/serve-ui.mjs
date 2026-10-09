@@ -11,8 +11,11 @@ const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascrip
 
 createServer(async (req, res) => {
   const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^([\\/]\.\.)+/, '');
-  const file = join(root, path.endsWith('/') || path.endsWith('\\') ? 'index.html' : path);
-  if (!file.startsWith(root)) { res.writeHead(403).end(); return; }
+  // Les patch notes (CHANGELOG.md à la racine du dépôt) sont intégrées à l'application.
+  const file = /^[\\/]CHANGELOG\.md$/.test(path)
+    ? fileURLToPath(new URL('../CHANGELOG.md', import.meta.url))
+    : join(root, path.endsWith('/') || path.endsWith('\\') ? 'index.html' : path);
+  if (!file.startsWith(root) && !file.endsWith('CHANGELOG.md')) { res.writeHead(403).end(); return; }
   try {
     const body = await readFile(file);
     res.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' }).end(body);

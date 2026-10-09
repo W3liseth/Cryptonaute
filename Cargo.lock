@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "cryptonaute"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "cryptonaute-common",
@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "cryptonaute-common"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "ipnet",
@@ -737,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "cryptonaute-service"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "cryptonaute-common",
