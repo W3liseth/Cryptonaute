@@ -190,11 +190,44 @@ code, .mono { font-family: var(--mono); }
 .option-icon svg { width: 20px; height: 20px; }
 .option-icon.tray { background: rgba(34,211,238,.14); color: var(--cyan); }
 .option-icon.boot { background: rgba(124,92,255,.18); color: #a78bfa; }
+.option-icon.update { background: rgba(16,185,129,.16); color: var(--green); }
 .option-text { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .option-text strong { font-size: 14px; font-weight: 600; }
 .option-text small { color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
 .options-note { margin: 2px 4px 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .modal-foot .about { margin-right: auto; align-self: center; font-size: 12px; color: var(--muted); }
+.modal-foot .spacer { flex: 1; }
+
+/* Mise à jour */
+.update-banner {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; margin-top: auto;
+  border-radius: 14px; border: 1px solid rgba(16,185,129,.35); cursor: pointer; text-align: left;
+  font: inherit; color: var(--text);
+  background: linear-gradient(135deg, rgba(16,185,129,.16), rgba(34,211,238,.10));
+  transition: transform .25s var(--spring), filter .2s; animation: banner-in .5s var(--spring);
+}
+.update-banner:hover { transform: translateY(-1px); filter: brightness(1.15); }
+.update-banner[hidden] { display: none; }
+.update-banner + .sidebar-foot { margin-top: 0; }
+.ub-icon { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; flex: none; background: rgba(16,185,129,.2); color: var(--green); }
+.ub-icon svg, .update-versions .option-icon svg { width: 17px; height: 17px; }
+.ub-text { display: flex; flex-direction: column; min-width: 0; }
+.ub-text strong { font-size: 13px; font-weight: 600; }
+.ub-text small { font-size: 12px; color: var(--text-2); }
+@keyframes banner-in { from { opacity: 0; transform: translateY(8px); } }
+.update-versions { display: flex; align-items: center; gap: 12px; font-size: 15px; font-weight: 600; }
+.update-versions .option-icon { width: 36px; height: 36px; border-radius: 11px; }
+.tag.new { background: rgba(16,185,129,.18); color: #6ee7b7; }
+.update-notes {
+  max-height: 220px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; font-size: 12.5px; line-height: 1.55; color: var(--text-2);
+}
+.update-notes strong { color: var(--text); }
+.update-progress { display: flex; flex-direction: column; gap: 6px; }
+.update-progress .bar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.update-progress .bar span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--green), var(--cyan)); transition: width .25s ease; }
+.update-progress small { font-size: 12px; color: var(--muted); }
 
 .switch {
   appearance: none; -webkit-appearance: none; margin: 0; flex: none; cursor: pointer;

@@ -14,6 +14,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuBuilder, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
+use crate::updater::UpdateState;
 use crate::{client, status_from, store::Store};
 
 const TRAY_ID: &str = "main";
@@ -28,6 +29,8 @@ struct Snapshot {
     /// Tunnels actifs, dans l'ordre de leur activation.
     active: Vec<String>,
     tunnels: Vec<String>,
+    /// Version disponible, si une mise à jour a été trouvée.
+    update: Option<String>,
 }
 
 #[derive(Default)]
@@ -43,18 +46,26 @@ struct TrayAction {
     message: String,
 }
 
-fn snapshot() -> Snapshot {
+fn snapshot(app: &AppHandle) -> Snapshot {
     let tunnels = Store::open().map(|s| s.names()).unwrap_or_default();
+    let update = app
+        .state::<UpdateState>()
+        .available
+        .lock()
+        .ok()
+        .and_then(|u| u.as_ref().map(|u| u.version.clone()));
     match status_from(client::request(&Request::Status)) {
         Ok(st) => Snapshot {
             service_ok: true,
             active: st.tunnels.into_iter().map(|t| t.name).collect(),
             tunnels,
+            update,
         },
         Err(_) => Snapshot {
             service_ok: false,
             active: Vec::new(),
             tunnels,
+            update,
         },
     }
 }
@@ -105,6 +116,15 @@ fn build_menu(app: &AppHandle, snap: &Snapshot) -> tauri::Result<Menu<Wry>> {
         )?);
     }
     let disconnect = if snap.active.len() > 1 { "Tout déconnecter" } else { "Se déconnecter" };
+    if let Some(version) = &snap.update {
+        menu = menu.separator().item(&MenuItem::with_id(
+            app,
+            "update",
+            format!("Mettre à jour vers la version {version}…"),
+            true,
+            None::<&str>,
+        )?);
+    }
     menu.separator()
         .item(&MenuItem::with_id(app, "disconnect", disconnect, !snap.active.is_empty(), None::<&str>)?)
         .item(&MenuItem::with_id(app, "show", "Ouvrir Cryptonaute", true, None::<&str>)?)
@@ -138,12 +158,18 @@ fn refresh(app: &AppHandle, force: bool) {
     if !state.enabled.load(Ordering::SeqCst) {
         return;
     }
-    let snap = snapshot();
+    let snap = snapshot(app);
     let mut last = state.last.lock().unwrap_or_else(|e| e.into_inner());
     if force || last.as_ref() != Some(&snap) {
         apply(app, &snap);
         *last = Some(snap);
     }
+}
+
+/// Met l'icône à jour sans attendre le prochain sondage (hors du thread appelant).
+pub fn refresh_now(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || refresh(&app, true));
 }
 
 /// Vrai si l'icône est affichée (la fermeture de la fenêtre la masque alors
@@ -190,6 +216,10 @@ fn on_menu(app: &AppHandle, id: &str) {
             let _ = app.emit("open-options", ());
         }
         "quit" => app.exit(0),
+        "update" => {
+            show_main(app);
+            let _ = app.emit("open-update", ());
+        }
         "disconnect" => run_action(app, Action::DisconnectAll),
         _ => {
             if let Some(name) = id.strip_prefix("tunnel:") {

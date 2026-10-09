@@ -15,6 +15,11 @@ serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance = "2"
+base64.workspace = true
+# Mises à jour : client HTTPS (rustls), vérification des signatures minisign.
+ureq = { version = "3", features = ["json"] }
+minisign-verify = "0.2"
+semver = "1"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 workspace = true
@@ -25,6 +30,8 @@ features = [
     "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
     "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ]
 
 [target.'cfg(unix)'.dependencies]

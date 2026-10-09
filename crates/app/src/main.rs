@@ -11,11 +11,12 @@ mod paths;
 mod settings;
 mod store;
 mod tray;
+mod updater;
 
 use cryptonaute_common::config::{self, TunnelSummary, WgConfig};
 use cryptonaute_common::ipc::{Request, Response, ServiceStatus};
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use client::ClientError;
 use store::Store;
@@ -196,12 +197,14 @@ async fn disconnect(name: Option<String>) -> Result<ServiceStatus, String> {
 struct Options {
     show_tray: bool,
     autostart: bool,
+    auto_update: bool,
 }
 
 fn current_options(app: &tauri::AppHandle) -> Options {
     Options {
         show_tray: tray::is_enabled(app),
         autostart: autostart::is_enabled(),
+        auto_update: settings::load().auto_update,
     }
 }
 
@@ -216,6 +219,7 @@ fn set_options(
     app: tauri::AppHandle,
     show_tray: Option<bool>,
     autostart: Option<bool>,
+    auto_update: Option<bool>,
 ) -> Result<Options, String> {
     if let Some(visible) = show_tray {
         let mut prefs = settings::load();
@@ -226,7 +230,101 @@ fn set_options(
     if let Some(enabled) = autostart {
         autostart::set_enabled(enabled)?;
     }
+    if let Some(enabled) = auto_update {
+        let mut prefs = settings::load();
+        prefs.auto_update = enabled;
+        settings::save(&prefs)?;
+    }
     Ok(current_options(&app))
+}
+
+/// Délai avant la première recherche de mise à jour, puis intervalle entre deux recherches.
+const UPDATE_FIRST_CHECK: std::time::Duration = std::time::Duration::from_secs(15);
+const UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+
+/// Mémorise le résultat d'une recherche et prévient l'interface et l'icône.
+fn store_update(app: &tauri::AppHandle, found: Option<updater::UpdateInfo>) {
+    let state = app.state::<updater::UpdateState>();
+    let mut available = state.available.lock().unwrap_or_else(|e| e.into_inner());
+    let is_new = found.as_ref().map(|u| &u.version) != available.as_ref().map(|u| &u.version);
+    *available = found.clone();
+    drop(available);
+    if is_new {
+        if let Some(info) = found {
+            let _ = app.emit("update-available", info);
+        }
+        tray::refresh_now(app);
+    }
+}
+
+/// Mise à jour déjà trouvée (sans nouvelle requête).
+#[tauri::command]
+fn update_status(app: tauri::AppHandle) -> Option<updater::UpdateInfo> {
+    app.state::<updater::UpdateState>()
+        .available
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+#[tauri::command]
+async fn check_update(app: tauri::AppHandle) -> Result<Option<updater::UpdateInfo>, String> {
+    let found = blocking(updater::check).await?;
+    store_update(&app, found.clone());
+    Ok(found)
+}
+
+#[tauri::command]
+fn open_release_page(app: tauri::AppHandle) -> Result<(), String> {
+    let page = update_status(app)
+        .map(|u| u.page)
+        .unwrap_or_else(|| "https://github.com/W3liseth/Cryptonaute/releases/latest".into());
+    updater::open_page(&page)
+}
+
+#[derive(Clone, Serialize)]
+struct UpdateProgress {
+    received: u64,
+    total: u64,
+}
+
+/// Télécharge, vérifie et lance l'installeur de la mise à jour trouvée.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    let info = update_status(app.clone()).ok_or("aucune mise à jour disponible")?;
+    let handle = app.clone();
+    let after = blocking(move || {
+        let mut last = 0;
+        let path = updater::download(&info, |received, total| {
+            // Une notification tous les 256 Kio suffit à animer la barre de progression.
+            if received - last >= 256 * 1024 || received == total {
+                last = received;
+                let _ = handle.emit("update-progress", UpdateProgress { received, total });
+            }
+        })?;
+        updater::launch(&path)
+    })
+    .await?;
+    match after {
+        updater::AfterLaunch::Exit => app.exit(0),
+        updater::AfterLaunch::Restart => app.restart(),
+    }
+    Ok(())
+}
+
+fn spawn_update_checks(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(UPDATE_FIRST_CHECK);
+        loop {
+            if settings::load().auto_update {
+                match updater::check() {
+                    Ok(found) => store_update(&app, found),
+                    Err(e) => eprintln!("recherche de mise à jour : {e}"),
+                }
+            }
+            std::thread::sleep(UPDATE_INTERVAL);
+        }
+    });
 }
 
 fn main() {
@@ -241,7 +339,9 @@ fn main() {
             paths::migrate_legacy_data();
             autostart::repair();
             let prefs = settings::load();
+            app.manage(updater::UpdateState::default());
             tray::setup(app.handle(), prefs.show_tray)?;
+            spawn_update_checks(app.handle().clone());
             // Sans icône de notification, une fenêtre masquée serait inaccessible.
             if !start_hidden || !prefs.show_tray {
                 tray::show_main(app.handle());
@@ -271,6 +371,10 @@ fn main() {
             disconnect,
             get_options,
             set_options,
+            update_status,
+            check_update,
+            install_update,
+            open_release_page,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Cryptonaute");

@@ -146,9 +146,8 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: Publication de la release et du tag
+      - name: Contrôle des installeurs
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           cd artifacts
@@ -160,6 +159,23 @@ jobs:
               *) echo "::error::$f ne correspond pas à la version $VERSION"; exit 1 ;;
             esac
           done
+      # Signature minisign vérifiée par l'application avant toute mise à jour
+      # automatique (clé publique : crates/app/updater.pub).
+      - name: Signature des installeurs
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "::error::secret TAURI_SIGNING_PRIVATE_KEY manquant"; exit 1; }
+          cd artifacts
+          for f in *.exe *.deb *.rpm *.pkg; do
+            npx --yes @tauri-apps/cli@2 signer sign "$f"
+          done
+      - name: Publication de la release et du tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          cd artifacts
           ls -l
           gh release create "v$VERSION" * \
             --repo "$GITHUB_REPOSITORY" \

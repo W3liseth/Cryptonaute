@@ -13,11 +13,16 @@ pub struct Settings {
     /// Afficher l'icône dans la zone de notification. Si elle est masquée,
     /// fermer la fenêtre quitte l'application.
     pub show_tray: bool,
+    /// Rechercher automatiquement les mises à jour (au démarrage puis toutes les 6 h).
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { show_tray: true }
+        Settings {
+            show_tray: true,
+            auto_update: true,
+        }
     }
 }
 

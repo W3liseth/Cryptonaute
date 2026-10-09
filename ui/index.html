@@ -60,6 +60,10 @@
           Nouveau
         </button>
       </div>
+      <button class="update-banner" id="update-banner" hidden>
+        <span class="ub-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V7M6.5 12.5L12 7l5.5 5.5" /><path d="M5 3h14" /></svg></span>
+        <span class="ub-text"><strong>Mise à jour disponible</strong><small id="update-banner-version"></small></span>
+      </button>
       <div class="sidebar-foot">
         <div class="service-pill" id="service-pill" title="">
           <span class="dot"></span>
@@ -273,11 +277,48 @@
           </span>
           <input type="checkbox" class="switch" id="opt-boot" role="switch" />
         </label>
+        <label class="option">
+          <span class="option-icon update"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V7M6.5 12.5L12 7l5.5 5.5" /><path d="M5 3h14" /></svg></span>
+          <span class="option-text">
+            <strong>Mises à jour automatiques</strong>
+            <small>Recherche les nouvelles versions sur GitHub au démarrage puis toutes les 6 heures. Rien n’est installé sans votre accord.</small>
+          </span>
+          <input type="checkbox" class="switch" id="opt-update" role="switch" />
+        </label>
         <p class="options-note">Ces réglages sont propres à votre compte et ne nécessitent aucun droit administrateur. Vos tunnels actifs restent gérés par le service, même lorsque l'application est fermée.</p>
       </div>
       <footer class="modal-foot">
         <span class="about" id="about"></span>
+        <button class="btn ghost" id="opt-check">Rechercher une mise à jour</button>
         <button class="btn primary" data-close>Terminé</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Mise à jour -->
+  <div class="modal-backdrop" id="update" hidden>
+    <div class="modal glass medium" role="dialog" aria-modal="true" aria-labelledby="update-title">
+      <header class="modal-head">
+        <h3 id="update-title">Mise à jour disponible</h3>
+        <button class="icon-btn sm" data-close aria-label="Fermer"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+      </header>
+      <div class="modal-body">
+        <div class="update-versions">
+          <span class="option-icon update"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V7M6.5 12.5L12 7l5.5 5.5" /><path d="M5 3h14" /></svg></span>
+          <span>Cryptonaute <span class="tag" id="up-current"></span> → <span class="tag new" id="up-version"></span></span>
+        </div>
+        <div class="update-notes" id="up-notes"></div>
+        <p class="options-note" id="up-note"></p>
+        <div class="update-progress" id="up-progress" hidden>
+          <div class="bar"><span id="up-bar"></span></div>
+          <small id="up-progress-text"></small>
+        </div>
+      </div>
+      <footer class="modal-foot">
+        <button class="btn ghost" id="up-page">Voir sur GitHub</button>
+        <span class="spacer"></span>
+        <button class="btn ghost" data-close id="up-later">Plus tard</button>
+        <button class="btn primary" id="up-install">Installer</button>
       </footer>
     </div>
   </div>

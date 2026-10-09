@@ -776,8 +776,12 @@ document.addEventListener('click', (e) => {
   if (b) copyText(b.dataset.copy);
 });
 document.addEventListener('keydown', (e) => {
-  const modalOpen = !$('#editor').hidden || !$('#confirm').hidden || !$('#options').hidden;
-  if (e.key === 'Escape') { closeModal('#editor'); closeModal('#confirm'); closeModal('#options'); return; }
+  const modalOpen = !$('#editor').hidden || !$('#confirm').hidden || !$('#options').hidden || !$('#update').hidden;
+  if (e.key === 'Escape') {
+    closeModal('#editor'); closeModal('#confirm'); closeModal('#options');
+    if (!upd.installing) closeModal('#update');
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && e.key === ',' && !modalOpen) { e.preventDefault(); openOptions(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !$('#editor').hidden) { e.preventDefault(); if (!$('#ed-save').disabled) saveEditor(); return; }
   if (modalOpen || e.target.matches('input, textarea')) return;
@@ -797,10 +801,12 @@ if (TAURI) document.addEventListener('contextmenu', (e) => { if (!e.target.match
 /* ---------- Options ---------- */
 const optTray = $('#opt-tray');
 const optBoot = $('#opt-boot');
+const optUpdate = $('#opt-update');
 
 function renderOptions(o) {
   optTray.checked = o.showTray;
   optBoot.checked = o.autostart;
+  optUpdate.checked = o.autoUpdate;
   $('#opt-boot-desc').textContent = o.showTray
     ? 'Démarre Cryptonaute discrètement dans la zone de notification à l’ouverture de votre session.'
     : 'Ouvre la fenêtre de Cryptonaute à l’ouverture de votre session.';
@@ -809,7 +815,7 @@ function renderOptions(o) {
 
 async function openOptions() {
   try { renderOptions(await invoke('get_options')); } catch (e) { toast(String(e), 'error'); return; }
-  const appVersion = TAURI ? await TAURI.app.getVersion().catch(() => null) : '0.4.0 (démo)';
+  const appVersion = TAURI ? await TAURI.app.getVersion().catch(() => null) : '0.5.0 (démo)';
   $('#about').textContent = `Cryptonaute ${appVersion ? 'v' + appVersion : ''}`;
   openModal('#options');
 }
@@ -836,13 +842,116 @@ optBoot.addEventListener('change', () => changeOption(optBoot, 'autostart', [
   'Cryptonaute démarrera à l’ouverture de votre session',
   'Lancement au démarrage désactivé',
 ]));
+optUpdate.addEventListener('change', () => changeOption(optUpdate, 'autoUpdate', [
+  'Cryptonaute recherchera automatiquement les mises à jour',
+  'Recherche automatique des mises à jour désactivée',
+]));
 $('#btn-options').addEventListener('click', openOptions);
 if (TAURI) TAURI.event.listen('open-options', openOptions);
+
+/* ---------- Mises à jour ---------- */
+const upd = { info: null, installing: false };
+
+function showUpdateBanner(info) {
+  upd.info = info ?? null;
+  $('#update-banner').hidden = !info;
+  if (info) $('#update-banner-version').textContent = `Version ${info.version} · cliquez pour l’installer`;
+}
+
+/* Notes de version (Markdown de GitHub) affichées en texte, titres et gras conservés. */
+function renderNotes(md) {
+  if (!md.trim()) return '<span class="v-meta">Aucune note de version.</span>';
+  return esc(md)
+    .replace(/^#{1,6}\s*(.+)$/gm, '<strong>$1</strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^\s*[*-]\s+/gm, '• ');
+}
+
+const UPDATE_NOTES = {
+  windows: 'Windows demandera l’autorisation administrateur, puis Cryptonaute redémarrera tout seul.',
+  linux: 'Votre système demandera le mot de passe administrateur, puis Cryptonaute redémarrera.',
+  macos: 'Le programme d’installation de macOS s’ouvrira ; relancez Cryptonaute une fois l’installation terminée.',
+};
+
+function openUpdate() {
+  const i = upd.info;
+  if (!i) return;
+  $('#up-current').textContent = i.current;
+  $('#up-version').textContent = i.version;
+  $('#up-notes').innerHTML = renderNotes(i.notes);
+  $('#up-note').textContent = i.asset
+    ? `L’installeur (${fmtBytes(i.size)}) est téléchargé depuis GitHub et sa signature vérifiée. ${UPDATE_NOTES[PLATFORM]} Les tunnels actifs seront déconnectés pendant l’installation.`
+    : 'Aucun installeur automatique n’est disponible pour votre système : téléchargez la nouvelle version depuis GitHub.';
+  $('#up-install').hidden = !i.asset;
+  $('#up-install').disabled = false;
+  $('#up-later').disabled = false;
+  $('#up-progress').hidden = true;
+  openModal('#update');
+}
+
+async function installUpdate() {
+  if (!upd.info?.asset || upd.installing) return;
+  upd.installing = true;
+  $('#up-install').disabled = true;
+  $('#up-later').disabled = true;
+  $('#up-progress').hidden = false;
+  $('#up-bar').style.width = '0%';
+  $('#up-progress-text').textContent = 'Téléchargement de l’installeur…';
+  try {
+    await invoke('install_update');
+    // Windows et macOS : l'application se ferme pendant que l'installeur travaille.
+    $('#up-progress-text').textContent = 'Installeur lancé…';
+  } catch (e) {
+    toast(String(e), 'error', 7000);
+    $('#up-progress').hidden = true;
+    $('#up-install').disabled = false;
+    $('#up-later').disabled = false;
+  } finally {
+    upd.installing = false;
+  }
+}
+
+async function checkUpdateNow() {
+  const btn = $('#opt-check');
+  btn.disabled = true;
+  btn.textContent = 'Recherche…';
+  try {
+    const info = await invoke('check_update');
+    showUpdateBanner(info);
+    if (info) { closeModal('#options'); setTimeout(openUpdate, 200); }
+    else toast('Cryptonaute est à jour', 'success');
+  } catch (e) {
+    toast(String(e), 'error', 6000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Rechercher une mise à jour';
+  }
+}
+
+$('#update-banner').addEventListener('click', openUpdate);
+$('#up-install').addEventListener('click', installUpdate);
+$('#up-page').addEventListener('click', () => invoke('open_release_page').catch((e) => toast(String(e), 'error')));
+$('#opt-check').addEventListener('click', checkUpdateNow);
+if (TAURI) {
+  TAURI.event.listen('update-available', ({ payload }) => {
+    showUpdateBanner(payload);
+    toast(`Cryptonaute ${payload.version} est disponible`, 'info', 6000);
+  });
+  TAURI.event.listen('open-update', openUpdate);
+  TAURI.event.listen('update-progress', ({ payload: { received, total } }) => {
+    const pct = total ? Math.min(100, (received / total) * 100) : 0;
+    $('#up-bar').style.width = `${pct}%`;
+    $('#up-progress-text').textContent = received >= total
+      ? 'Vérification de la signature et lancement de l’installeur…'
+      : `Téléchargement : ${fmtBytes(received)} sur ${fmtBytes(total)}`;
+  });
+}
 
 /* ---------- Démarrage ---------- */
 (async function init() {
   renderService();
   invoke('get_options').then(renderOptions).catch(() => {});
+  invoke('update_status').then(showUpdateBanner).catch(() => {});
   await poll();
   await loadTunnels();
   setInterval(poll, 1000);
@@ -889,7 +998,7 @@ function demoInvoke(cmd, args = {}) {
       case 'save_tunnel': summary(args.config); if (args.previous && args.previous !== args.name) delete D.configs[args.previous]; D.configs[args.name] = args.config; return { name: args.name, summary: summary(args.config) };
       case 'delete_tunnel': delete D.configs[args.name]; return null;
       case 'service_status': return { available: true, status: status() };
-      case 'service_info': return { available: true, version: '0.4.0 (démo)' };
+      case 'service_info': return { available: true, version: '0.5.0 (démo)' };
       case 'connect': {
         await wait(1400);
         const full = summary(D.configs[args.name]).fullTunnel;
@@ -898,12 +1007,20 @@ function demoInvoke(cmd, args = {}) {
         return status();
       }
       case 'disconnect': await wait(600); D.active = D.active.filter((a) => args.name != null && a.name !== args.name); return status();
-      case 'get_options': return { showTray: D.showTray ?? true, autostart: !!D.autostart };
+      case 'get_options': return { showTray: D.showTray ?? true, autostart: !!D.autostart, autoUpdate: D.autoUpdate ?? true };
+      case 'update_status': return D.update ?? null;
+      case 'check_update':
+        await wait(700);
+        return (D.update = { version: '0.6.0', current: '0.5.0', asset: 'Cryptonaute_0.6.0_x64-setup.exe', size: 2300000, page: '#',
+          notes: "## Nouveautés\n* Mises à jour automatiques\n* Corrections diverses\n\n**Full Changelog**: v0.5.0...v0.6.0" });
+      case 'install_update': await wait(1200); throw 'mode démo : aucune installation';
+      case 'open_release_page': return null;
       case 'set_options':
         await wait(150);
         if (args.showTray !== undefined) D.showTray = args.showTray;
         if (args.autostart !== undefined) D.autostart = args.autostart;
-        return { showTray: D.showTray ?? true, autostart: !!D.autostart };
+        if (args.autoUpdate !== undefined) D.autoUpdate = args.autoUpdate;
+        return { showTray: D.showTray ?? true, autostart: !!D.autostart, autoUpdate: D.autoUpdate ?? true };
       default: throw `commande inconnue : ${cmd}`;
     }
   })();

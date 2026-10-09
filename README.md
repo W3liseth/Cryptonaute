@@ -39,7 +39,10 @@
   durée de connexion).
 - **Icône dans la zone de notification** (ou la barre des menus sous macOS) : verte
   lorsqu'un tunnel est actif, menu pour (dé)connecter chaque tunnel en un clic.
-- **Options** : affichage de l'icône de notification, lancement à l'ouverture de session.
+- **Options** : affichage de l'icône de notification, lancement à l'ouverture de session,
+  mises à jour automatiques.
+- **Mises à jour** : les nouvelles versions publiées sur GitHub sont signalées, puis
+  installées en un clic après vérification de leur signature (voir [Mises à jour](#mises-à-jour)).
 - **Plusieurs tunnels simultanés** : un tunnel complet (ex. une sortie aux États-Unis)
   et des tunnels partiels (ex. votre infrastructure) peuvent être actifs ensemble ; les
   réseaux des tunnels partiels restent prioritaires (voir [Tunnels simultanés](#tunnels-simultanés)).
@@ -149,6 +152,24 @@ défaut celui du dernier tunnel activé.
 Les directives `PreUp`, `PostUp`, `PreDown`, `PostDown`, `Table`, `FwMark` et `SaveConfig`
 sont ignorées (et signalées à l'import) ; voir [Sécurité](#sécurité).
 
+### Mises à jour
+
+Cryptonaute recherche les nouvelles versions au démarrage puis toutes les 6 heures
+(option désactivable, bouton *Rechercher une mise à jour* dans les options). Lorsqu'une
+version est disponible, un bandeau apparaît dans la barre latérale, ainsi qu'une entrée
+dans le menu de l'icône de notification. Rien n'est installé sans votre accord.
+
+L'installation réutilise l'installeur complet de la release, qui met à jour
+l'application **et** le service en même temps :
+
+| Système | Installeur | Autorisation |
+|---|---|---|
+| Windows | `…_x64-setup.exe`, en mode passif ; Cryptonaute redémarre ensuite | invite UAC |
+| Linux | `.deb` (apt) ou `.rpm` (dnf, zypper), selon le paquet installé | fenêtre polkit (`pkexec`) |
+| macOS | `.pkg`, ouvert dans le programme d'installation | mot de passe administrateur |
+
+Les tunnels actifs sont déconnectés pendant l'installation (le service est redémarré).
+
 ## Architecture
 
 ```
@@ -198,6 +219,11 @@ trois opérations : *connecter* (nom + configuration), *déconnecter* et *statut
   un autre utilisateur que root.
 - **`wireguard.dll`** est le pilote officiel signé par WireGuard LLC ; le script de mise
   à jour vérifie sa signature Authenticode.
+- **Mises à jour signées.** Chaque installeur de la release est signé (minisign, Ed25519)
+  par la CI ; l'application vérifie la signature avec la clé publique qu'elle embarque
+  ([`crates/app/updater.pub`](crates/app/updater.pub)) avant de lancer l'installeur. Le
+  nom du fichier fait partie du message signé : un ancien installeur ne peut pas être
+  présenté comme une version plus récente. Le téléchargement se fait uniquement en HTTPS.
 
 ## Compiler depuis les sources
 
@@ -244,6 +270,12 @@ le workflow crée le tag `vX.Y.Z` et publie la release avec les installeurs en
 téléchargement direct (sans archive zip). Pour publier une nouvelle version, il suffit
 donc d'incrémenter `version` et de pousser sur `main` ; tant que la version ne change
 pas, les builds suivants ne republient rien.
+
+Chaque installeur publié est accompagné de sa signature (`.sig`), utilisée par les
+mises à jour automatiques. La CI signe avec la clé privée enregistrée dans le secret
+`TAURI_SIGNING_PRIVATE_KEY` du dépôt ; sans ce secret, la publication échoue. La clé
+privée n'est pas dans le dépôt : la perdre empêcherait de signer les versions suivantes,
+et les installations existantes ne pourraient plus se mettre à jour automatiquement.
 
 ### Version
 
