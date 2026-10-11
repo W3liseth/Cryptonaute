@@ -4,6 +4,7 @@ packaging/macos/scripts/* text eol=lf
 # Scripts et hooks Windows.
 *.ps1                     text eol=crlf
 *.nsh                     text eol=crlf
+*.nsi                     text eol=crlf
 # Binaires fournis.
 *.dll                     binary
 *.ico                     binary

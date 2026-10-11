@@ -33,9 +33,10 @@
   fichier, ou création d'un tunnel avec génération d'une paire de clés.
 - **Éditeur intégré** avec coloration syntaxique et validation en direct (adresses,
   clés, endpoint, avertissements sur les directives ignorées).
-- **Interface moderne et animée** : thème sombre « verre dépoli » dont les couleurs
-  suivent l'état de connexion, bouton de connexion animé, graphique du trafic en
-  temps réel, statistiques (octets reçus/envoyés, débits, dernière poignée de main,
+- **Interface native, moderne et animée** (Rust + [egui](https://github.com/emilk/egui),
+  sans navigateur intégré ni JavaScript) : thème sombre « verre dépoli » dont les
+  couleurs suivent l'état de connexion, bouton de connexion animé, graphique du trafic
+  en temps réel, statistiques (octets reçus/envoyés, débits, dernière poignée de main,
   durée de connexion).
 - **Icône dans la zone de notification** (ou la barre des menus sous macOS) : verte
   lorsqu'un tunnel est actif, menu pour (dé)connecter chaque tunnel en un clic.
@@ -182,10 +183,10 @@ Les tunnels actifs sont déconnectés pendant l'installation (le service est red
 
 ```
 ┌───────────────────────────────┐        IPC local         ┌──────────────────────────────────┐
-│ cryptonaute (application Tauri) │   JSON, une requête      │ cryptonaute-service                │
+│ cryptonaute (application egui)│   JSON, une requête      │ cryptonaute-service              │
 │ compte utilisateur standard   │   par ligne              │ SYSTEM (Windows) / root (Unix)   │
 │                               │ ───────────────────────▶ │                                  │
-│ • interface HTML/CSS/JS       │  named pipe (Windows)    │ • revalide la configuration      │
+│ • interface native (egui)     │  named pipe (Windows)    │ • revalide la configuration      │
 │ • stockage des configurations │  socket Unix (Linux/mac) │ • crée l'interface WireGuard     │
 │ • icône de notification       │ ◀─────────────────────── │ • adresses, routes, DNS, MTU     │
 │ • lancement au démarrage      │        statut            │ • statistiques du tunnel         │
@@ -201,8 +202,8 @@ trois opérations : *connecter* (nom + configuration), *déconnecter* et *statut
 |---|---|
 | [`crates/common`](crates/common) | Parseur et validateur `wg-quick`, protocole IPC — partagé et testé |
 | [`crates/service`](crates/service) | Service privilégié : `windows/` (SCM, WireGuardNT, IP Helper, named pipe) et `unix/` (systemd/launchd, [`defguard_wireguard_rs`](https://github.com/DefGuard/wireguard-rs), socket Unix, nftables) |
-| [`crates/app`](crates/app) | Application [Tauri 2](https://tauri.app/) : stockage, client IPC, zone de notification, options |
-| [`ui/`](ui) | Interface en HTML/CSS/JS sans framework ni étape de build |
+| [`crates/app`](crates/app) | Application : stockage, client IPC, zone de notification ([`tray-icon`](https://github.com/tauri-apps/tray-icon)), options, mises à jour |
+| [`crates/app/src/ui`](crates/app/src/ui) | Interface native [egui](https://github.com/emilk/egui) (rendu wgpu : DirectX 12, Metal, Vulkan ou OpenGL) |
 
 ## Sécurité
 
@@ -235,12 +236,12 @@ trois opérations : *connecter* (nom + configuration), *déconnecter* et *statut
 
 ## Compiler depuis les sources
 
-Prérequis communs : [Rust](https://rustup.rs/) stable, et [Node.js](https://nodejs.org/)
-(la CLI Tauri est alors récupérée via `npx`) ou la CLI Tauri (`cargo install tauri-cli`).
+Prérequis communs : [Rust](https://rustup.rs/) stable.
 
 ### Windows
 
-Prérequis : toolchain MSVC (Visual Studio Build Tools).
+Prérequis : toolchain MSVC (Visual Studio Build Tools) et [NSIS](https://nsis.sourceforge.io/) 3
+(`winget install NSIS.NSIS`).
 
 ```powershell
 pwsh scripts/build.ps1          # → dist\Cryptonaute_<version>_x64-setup.exe
@@ -252,10 +253,15 @@ Pour changer de version ou d'architecture : `pwsh scripts/fetch-wireguard-nt.ps1
 ### Linux
 
 ```bash
-sudo apt install build-essential libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-     librsvg2-dev libxdo-dev libssl-dev file patchelf rpm
+sudo apt install build-essential pkg-config rpm
 bash scripts/build-linux.sh     # → dist/*.deb et dist/*.rpm
 ```
+
+L'interface n'a besoin ni de WebKitGTK ni de GTK : à l'exécution, les paquets ne
+dépendent que de nftables et des bibliothèques graphiques de base (`libxkbcommon`,
+EGL ou Vulkan). L'icône de notification passe par le protocole StatusNotifierItem
+(D-Bus), pris en charge par KDE, Xfce, Cinnamon… et GNOME avec l'extension
+*AppIndicator*.
 
 ### macOS
 
@@ -264,6 +270,9 @@ Prérequis : Xcode Command Line Tools (`xcode-select --install`).
 ```bash
 bash scripts/build-macos.sh     # → dist/Cryptonaute_<version>_<arch>.pkg
 ```
+
+Le script assemble `Cryptonaute.app` (icône, `Info.plist`, signature ad hoc) puis le
+paquet d'installation.
 
 Le paquet est produit pour l'architecture de la machine (`arm64` ou `x86_64`).
 
@@ -299,13 +308,22 @@ la version.
 ## Développement
 
 ```bash
-cargo test --workspace          # parseur, stockage (chiffrement / permissions)
+cargo test --workspace          # parseur, stockage (chiffrement / permissions), interface
 cargo clippy --workspace --all-targets
-node scripts/serve-ui.mjs       # interface en mode démo dans un navigateur : http://localhost:5173
+CRYPTONAUTE_DEMO=1 cargo run -p cryptonaute     # interface en mode démo
 ```
 
-Le **mode démo** de l'interface (activé automatiquement hors de Tauri) simule le service
-et le trafic : pratique pour travailler le design sans compiler l'application.
+Le **mode démo** (versions de développement uniquement) simule le service, les tunnels
+et le trafic : rien ne touche aux vrais tunnels ni au stockage. `CRYPTONAUTE_DEMO=empty`
+démarre sans tunnel. Pour vérifier le rendu sans manipulation, une scène s'ouvre puis
+s'enregistre en image avant de quitter :
+
+```bash
+CRYPTONAUTE_DEMO=1 CRYPTONAUTE_SCENE=connected CRYPTONAUTE_SCREENSHOT=capture.png cargo run -p cryptonaute
+```
+
+Scènes : `main`, `connected`, `multi` (deux tunnels), `scrolled`, `editor`, `new`,
+`confirm`, `options`, `notes`, `update`, `toasts`, `hide-show`.
 
 Exécuter le service au premier plan, avec les journaux dans la console :
 
@@ -324,12 +342,12 @@ cryptonaute/
 ├── crates/
 │   ├── common/          parseur wg-quick, protocole IPC
 │   ├── service/         service privilégié (windows/ et unix/)
-│   └── app/             application Tauri (+ tauri.<plateforme>.conf.json, hooks NSIS, icônes)
-├── ui/                  interface (index.html, styles.css, app.js)
+│   └── app/             application (src/ui : interface egui), icônes, clé de mise à jour
 ├── packaging/
+│   ├── windows/         installeur NSIS
 │   ├── linux/           scripts des paquets .deb/.rpm
 │   └── macos/           scripts du .pkg et désinstallation
-├── scripts/             build.ps1, build-linux.sh, build-macos.sh, icônes, serveur de démo
+├── scripts/             build.ps1, build-linux.sh, build-macos.sh, icônes
 ├── third_party/         wireguard.dll (WireGuardNT) et sa licence
 └── .github/workflows/   intégration continue
 ```

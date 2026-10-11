@@ -45,10 +45,40 @@ pub struct UpdateInfo {
     sig_url: String,
 }
 
+impl UpdateInfo {
+    /// Mise à jour fictive (scènes de développement, inactives en version publiée).
+    pub fn demo() -> Self {
+        UpdateInfo {
+            version: "0.6.0".into(),
+            current: env!("CARGO_PKG_VERSION").into(),
+            notes: "### Nouveautés
+- Interface **native** (egui), sans navigateur intégré
+- Démarrage plus rapide
+
+### Corrections
+- Diverses corrections".into(),
+            page: "https://github.com/W3liseth/Cryptonaute/releases".into(),
+            asset: Some("Cryptonaute_0.6.0_x64-setup.exe".into()),
+            size: 2_900_000,
+            url: String::new(),
+            sig_url: String::new(),
+        }
+    }
+}
+
 /// Dernière mise à jour trouvée, partagée entre l'interface et la zone de notification.
-#[derive(Default)]
-pub struct UpdateState {
-    pub available: Mutex<Option<UpdateInfo>>,
+static AVAILABLE: Mutex<Option<UpdateInfo>> = Mutex::new(None);
+
+pub fn available() -> Option<UpdateInfo> {
+    AVAILABLE.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Mémorise le résultat d'une recherche ; vrai si la version proposée a changé.
+pub fn store(found: Option<UpdateInfo>) -> bool {
+    let mut available = AVAILABLE.lock().unwrap_or_else(|e| e.into_inner());
+    let changed = found.as_ref().map(|u| &u.version) != available.as_ref().map(|u| &u.version);
+    *available = found;
+    changed
 }
 
 #[derive(Deserialize)]

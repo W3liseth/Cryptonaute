@@ -6,16 +6,20 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-[build-dependencies]
-tauri-build = { version = "2", features = [] }
-
 [dependencies]
 cryptonaute-common.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
-tauri-plugin-single-instance = "2"
 base64.workspace = true
+# Interface native (egui), rendu wgpu : DirectX 12, Metal, Vulkan ou OpenGL.
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "accesskit", "default_fonts", "wayland", "x11"] }
+egui_extras = { version = "0.36", features = ["svg"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Polices du système (Segoe UI, SF Pro, Cantarell…), comme le faisait la pile CSS.
+fontdb = "0.23"
+tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }
+rfd = "0.17"
+interprocess = "2"
 # Mises à jour : client HTTPS (rustls), vérification des signatures minisign.
 ureq = { version = "3", features = ["json"] }
 minisign-verify = "0.2"
@@ -30,9 +34,13 @@ features = [
     "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
     "Win32_System_Registry",
+    "Win32_System_Threading",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

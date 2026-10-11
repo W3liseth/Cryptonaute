@@ -2,330 +2,121 @@
 //!
 //! Les configurations sont gérées localement (stockage chiffré par utilisateur) ;
 //! l'activation des tunnels est déléguée au service privilégié via IPC.
+//! L'interface est native (egui) : ni navigateur intégré ni JavaScript.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod autostart;
+mod backend;
 mod client;
+mod events;
+mod instance;
 mod paths;
 mod session;
 mod settings;
 mod store;
 mod tray;
+mod ui;
 mod updater;
 
-use cryptonaute_common::config::{self, TunnelSummary, WgConfig};
-use cryptonaute_common::ipc::{Request, Response, ServiceStatus};
-use serde::Serialize;
-use tauri::{Emitter, Manager};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-use client::ClientError;
-use store::Store;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TunnelEntry {
-    name: String,
-    summary: Option<TunnelSummary>,
-    error: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ServiceView {
-    available: bool,
-    version: Option<String>,
-    status: Option<ServiceStatus>,
-    error: Option<String>,
-}
-
-/// Exécute une opération bloquante hors du thread de l'interface.
-async fn blocking<T, F>(f: F) -> Result<T, String>
-where
-    F: FnOnce() -> Result<T, String> + Send + 'static,
-    T: Send + 'static,
-{
-    tauri::async_runtime::spawn_blocking(f)
-        .await
-        .map_err(|e| format!("tâche interrompue : {e}"))?
-}
-
-fn entry(store: &Store, name: String) -> TunnelEntry {
-    match store.load(&name).and_then(|t| WgConfig::parse(&t).map_err(|e| e.to_string())) {
-        Ok(cfg) => TunnelEntry {
-            name,
-            summary: Some(cfg.summary()),
-            error: None,
-        },
-        Err(e) => TunnelEntry {
-            name,
-            summary: None,
-            error: Some(e),
-        },
-    }
-}
-
-pub(crate) fn status_from(resp: Result<Response, ClientError>) -> Result<ServiceStatus, String> {
-    match resp.map_err(|e| e.to_string())? {
-        Response::Status(s) => Ok(s),
-        Response::Error { message } => Err(message),
-        Response::Hello { .. } | Response::Session => Err("réponse inattendue du service".into()),
-    }
-}
-
-#[tauri::command]
-async fn list_tunnels() -> Result<Vec<TunnelEntry>, String> {
-    blocking(|| {
-        let store = Store::open()?;
-        Ok(store.names().into_iter().map(|n| entry(&store, n)).collect())
-    })
-    .await
-}
-
-#[tauri::command]
-async fn get_tunnel_config(name: String) -> Result<String, String> {
-    blocking(move || Store::open()?.load(&name)).await
-}
-
-#[tauri::command]
-fn validate_config(config: String) -> Result<TunnelSummary, String> {
-    WgConfig::parse(&config)
-        .map(|c| c.summary())
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn validate_name(name: String) -> Result<(), String> {
-    config::validate_tunnel_name(&name)
-}
-
-#[tauri::command]
-fn new_template() -> String {
-    config::new_template()
-}
-
-#[tauri::command]
-async fn save_tunnel(name: String, config: String, previous: Option<String>) -> Result<TunnelEntry, String> {
-    blocking(move || {
-        WgConfig::parse(&config).map_err(|e| e.to_string())?;
-        let store = Store::open()?;
-        store.save(&name, &config, previous.as_deref())?;
-        Ok(entry(&store, name))
-    })
-    .await
-}
-
-#[tauri::command]
-async fn delete_tunnel(name: String) -> Result<(), String> {
-    blocking(move || Store::open()?.delete(&name)).await
-}
-
-#[tauri::command]
-async fn service_status() -> Result<ServiceView, String> {
-    blocking(|| {
-        Ok(match status_from(client::request(&Request::Status)) {
-            Ok(status) => ServiceView {
-                available: true,
-                version: None,
-                status: Some(status),
-                error: None,
-            },
-            Err(e) => ServiceView {
-                available: false,
-                version: None,
-                status: None,
-                error: Some(e),
-            },
-        })
-    })
-    .await
-}
-
-#[tauri::command]
-async fn service_info() -> Result<ServiceView, String> {
-    blocking(|| {
-        Ok(match client::request(&Request::Hello) {
-            Ok(Response::Hello { version, .. }) => ServiceView {
-                available: true,
-                version: Some(version),
-                status: None,
-                error: None,
-            },
-            Ok(_) => ServiceView {
-                available: false,
-                version: None,
-                status: None,
-                error: Some("réponse inattendue du service".into()),
-            },
-            Err(e) => ServiceView {
-                available: false,
-                version: None,
-                status: None,
-                error: Some(e.to_string()),
-            },
-        })
-    })
-    .await
-}
-
-/// Charge la configuration chiffrée du tunnel et demande son activation au service,
-/// à côté des tunnels déjà actifs.
-pub(crate) fn connect_tunnel(name: &str) -> Result<ServiceStatus, String> {
-    let config = Store::open()?.load(name)?;
-    status_from(client::request(&Request::Connect {
-        name: name.to_string(),
-        config,
-    }))
-}
-
-/// Déconnecte le tunnel `name`, ou tous les tunnels.
-pub(crate) fn disconnect_tunnel(name: Option<String>) -> Result<ServiceStatus, String> {
-    status_from(client::request(&Request::Disconnect { name }))
-}
-
-#[tauri::command]
-async fn connect(name: String) -> Result<ServiceStatus, String> {
-    blocking(move || connect_tunnel(&name)).await
-}
-
-#[tauri::command]
-async fn disconnect(name: Option<String>) -> Result<ServiceStatus, String> {
-    blocking(move || disconnect_tunnel(name)).await
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Options {
-    show_tray: bool,
-    autostart: bool,
-    auto_update: bool,
-}
-
-fn current_options(app: &tauri::AppHandle) -> Options {
-    Options {
-        show_tray: tray::is_enabled(app),
-        autostart: autostart::is_enabled(),
-        auto_update: settings::load().auto_update,
-    }
-}
-
-#[tauri::command]
-fn get_options(app: tauri::AppHandle) -> Options {
-    current_options(&app)
-}
-
-/// Modifie une ou plusieurs options ; les champs absents sont laissés inchangés.
-#[tauri::command]
-fn set_options(
-    app: tauri::AppHandle,
-    show_tray: Option<bool>,
-    autostart: Option<bool>,
-    auto_update: Option<bool>,
-) -> Result<Options, String> {
-    if let Some(visible) = show_tray {
-        let mut prefs = settings::load();
-        prefs.show_tray = visible;
-        settings::save(&prefs)?;
-        tray::set_visible(&app, visible).map_err(|e| e.to_string())?;
-    }
-    if let Some(enabled) = autostart {
-        autostart::set_enabled(enabled)?;
-    }
-    if let Some(enabled) = auto_update {
-        let mut prefs = settings::load();
-        prefs.auto_update = enabled;
-        settings::save(&prefs)?;
-    }
-    Ok(current_options(&app))
-}
+use eframe::egui::{self, ViewportBuilder, ViewportCommand};
 
 /// Délai avant la première recherche de mise à jour, puis intervalle entre deux recherches.
-const UPDATE_FIRST_CHECK: std::time::Duration = std::time::Duration::from_secs(15);
-const UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+const UPDATE_FIRST_CHECK: Duration = Duration::from_secs(15);
+const UPDATE_INTERVAL: Duration = Duration::from_secs(6 * 3600);
 
-/// Mémorise le résultat d'une recherche et prévient l'interface et l'icône.
-fn store_update(app: &tauri::AppHandle, found: Option<updater::UpdateInfo>) {
-    let state = app.state::<updater::UpdateState>();
-    let mut available = state.available.lock().unwrap_or_else(|e| e.into_inner());
-    let is_new = found.as_ref().map(|u| &u.version) != available.as_ref().map(|u| &u.version);
-    *available = found.clone();
-    drop(available);
-    if is_new {
-        if let Some(info) = found {
-            let _ = app.emit("update-available", info);
+/// L'utilisateur a demandé à quitter (la fermeture n'est alors plus annulée).
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
+/// Quitte l'application ; les tunnels sont déconnectés à la sortie (voir `session`).
+pub fn request_quit() {
+    QUITTING.store(true, Ordering::SeqCst);
+    match events::context() {
+        Some(ctx) => {
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+            ctx.request_repaint();
         }
-        tray::refresh_now(app);
+        None => {
+            session::close();
+            std::process::exit(0);
+        }
     }
 }
 
-/// Mise à jour déjà trouvée (sans nouvelle requête).
-#[tauri::command]
-fn update_status(app: tauri::AppHandle) -> Option<updater::UpdateInfo> {
-    app.state::<updater::UpdateState>()
-        .available
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-}
-
-#[tauri::command]
-async fn check_update(app: tauri::AppHandle) -> Result<Option<updater::UpdateInfo>, String> {
-    let found = blocking(updater::check).await?;
-    store_update(&app, found.clone());
-    Ok(found)
-}
-
-/// Historique des versions (CHANGELOG.md du dépôt, intégré à l'application).
-#[tauri::command]
-fn patch_notes() -> &'static str {
-    include_str!("../../../CHANGELOG.md")
-}
-
-#[tauri::command]
-fn open_release_page(app: tauri::AppHandle) -> Result<(), String> {
-    let page = update_status(app)
-        .map(|u| u.page)
-        .unwrap_or_else(|| "https://github.com/W3liseth/Cryptonaute/releases/latest".into());
-    updater::open_page(&page)
-}
-
-#[derive(Clone, Serialize)]
-struct UpdateProgress {
-    received: u64,
-    total: u64,
-}
-
-/// Télécharge, vérifie et lance l'installeur de la mise à jour trouvée.
-#[tauri::command]
-async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    let info = update_status(app.clone()).ok_or("aucune mise à jour disponible")?;
-    let handle = app.clone();
-    let after = blocking(move || {
-        let mut last = 0;
-        let path = updater::download(&info, |received, total| {
-            // Une notification tous les 256 Kio suffit à animer la barre de progression.
-            if received - last >= 256 * 1024 || received == total {
-                last = received;
-                let _ = handle.emit("update-progress", UpdateProgress { received, total });
-            }
-        })?;
-        updater::launch(&path)
-    })
-    .await?;
-    match after {
-        updater::AfterLaunch::Exit => app.exit(0),
-        updater::AfterLaunch::Restart => app.restart(),
+/// Relance l'application (après une mise à jour installée sous Linux).
+pub fn restart() {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::process::Command::new(exe)
+            .env("CRYPTONAUTE_WAIT_PID", std::process::id().to_string())
+            .spawn();
     }
-    Ok(())
+    request_quit();
 }
 
-fn spawn_update_checks(app: tauri::AppHandle) {
-    std::thread::spawn(move || {
+/// Affiche la fenêtre au premier plan (icône de notification, second lancement).
+pub fn show_window() {
+    if let Some(ctx) = events::context() {
+        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(ViewportCommand::Focus);
+        ctx.request_repaint();
+    }
+}
+
+/// Bouton « Fermer » : masque la fenêtre si l'icône de notification est affichée,
+/// sinon quitte l'application.
+pub fn close_window(ctx: &egui::Context) {
+    if tray::is_enabled() {
+        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+    } else {
+        request_quit();
+    }
+}
+
+/// Fermeture par le système (Alt+F4, bouton natif sous macOS) : même règle.
+pub fn handle_close_request(ctx: &egui::Context) {
+    if ctx.input(|i| i.viewport().close_requested()) && !QUITTING.load(Ordering::SeqCst) {
+        if tray::is_enabled() {
+            ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+        } else {
+            QUITTING.store(true, Ordering::SeqCst);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    mac_tray::tick(ctx);
+}
+
+/// macOS : l'icône de notification vit sur le thread principal.
+#[cfg(target_os = "macos")]
+mod mac_tray {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static DRIVER: RefCell<crate::tray::Driver> = RefCell::new(crate::tray::Driver::default());
+    }
+
+    pub fn tick(ctx: &eframe::egui::Context) {
+        DRIVER.with(|d| d.borrow_mut().tick());
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+}
+
+fn spawn_update_checks() {
+    std::thread::spawn(|| {
         std::thread::sleep(UPDATE_FIRST_CHECK);
         loop {
             if settings::load().auto_update {
                 match updater::check() {
-                    Ok(found) => store_update(&app, found),
+                    Ok(found) => {
+                        if updater::store(found.clone()) {
+                            tray::refresh_soon();
+                            events::post(move |app| app.on_update_found(found, true));
+                        }
+                    }
                     Err(e) => eprintln!("recherche de mise à jour : {e}"),
                 }
             }
@@ -334,67 +125,77 @@ fn spawn_update_checks(app: tauri::AppHandle) {
     });
 }
 
-fn main() {
+fn window_icon() -> Option<egui::IconData> {
+    let img = image::load_from_memory_with_format(include_bytes!("../icons/icon.png"), image::ImageFormat::Png)
+        .ok()?
+        .into_rgba8();
+    let (width, height) = img.dimensions();
+    Some(egui::IconData {
+        rgba: img.into_raw(),
+        width,
+        height,
+    })
+}
+
+fn main() -> eframe::Result {
+    instance::wait_for_previous();
+    if !instance::acquire() {
+        return Ok(());
+    }
     let start_hidden = std::env::args().any(|a| a == "--minimized");
-    tauri::Builder::default()
-        // Un second lancement réaffiche simplement la fenêtre existante.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::show_main(app);
-        }))
-        .setup(move |app| {
-            // Reprise des données de RustGuard, l'ancien nom de l'application.
-            paths::migrate_legacy_data();
-            autostart::repair();
-            let prefs = settings::load();
-            app.manage(updater::UpdateState::default());
-            tray::setup(app.handle(), prefs.show_tray)?;
-            spawn_update_checks(app.handle().clone());
-            session::spawn();
-            // Sans icône de notification, une fenêtre masquée serait inaccessible.
-            if !start_hidden || !prefs.show_tray {
-                tray::show_main(app.handle());
-            }
-            Ok(())
-        })
-        // Avec l'icône de notification, fermer la fenêtre la masque ; sinon l'application se ferme.
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if tray::is_enabled(window.app_handle()) {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
-            }
-        })
-        .invoke_handler(tauri::generate_handler![
-            list_tunnels,
-            get_tunnel_config,
-            validate_config,
-            validate_name,
-            new_template,
-            save_tunnel,
-            delete_tunnel,
-            service_status,
-            service_info,
-            connect,
-            disconnect,
-            get_options,
-            set_options,
-            update_status,
-            check_update,
-            install_update,
-            open_release_page,
-            patch_notes,
-        ])
-        .build(tauri::generate_context!())
-        .expect("erreur au lancement de Cryptonaute")
-        .run(|app, event| {
-            // Quitter l'application déconnecte les tunnels (s'il n'y a pas d'autre
-            // application ouverte) ; la fenêtre est masquée pendant ce temps.
-            if let tauri::RunEvent::Exit = event {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.hide();
-                }
-                session::close();
-            }
-        });
+    // Reprise des données de RustGuard, l'ancien nom de l'application.
+    paths::migrate_legacy_data();
+    autostart::repair();
+    let prefs = settings::load();
+    // En démonstration (développement), rien ne touche au vrai service.
+    if backend::is_demo() {
+        tray::set_visible(prefs.show_tray);
+    } else {
+        tray::setup(prefs.show_tray);
+        spawn_update_checks();
+        session::spawn();
+    }
+
+    // Sans icône de notification, une fenêtre masquée serait inaccessible.
+    let visible = !start_hidden || !prefs.show_tray;
+    let mut viewport = ViewportBuilder::default()
+        .with_title("Cryptonaute")
+        .with_app_id("cryptonaute")
+        .with_inner_size([1120.0, 740.0])
+        .with_min_inner_size([900.0, 620.0])
+        .with_visible(visible)
+        .with_drag_and_drop(true);
+    if let Some(icon) = window_icon() {
+        viewport = viewport.with_icon(icon);
+    }
+    // macOS : boutons natifs (feux tricolores) superposés à la barre de titre ;
+    // ailleurs : fenêtre sans décoration, avec barre de titre et bords maison.
+    viewport = if cfg!(target_os = "macos") {
+        viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false)
+    } else {
+        viewport.with_decorations(false)
+    };
+    let options = eframe::NativeOptions {
+        viewport,
+        centered: true,
+        ..Default::default()
+    };
+
+    let result = eframe::run_native(
+        "Cryptonaute",
+        options,
+        Box::new(|cc| {
+            ui::theme::install_fonts(&cc.egui_ctx);
+            ui::theme::install_style(&cc.egui_ctx);
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+            events::set_context(cc.egui_ctx.clone());
+            Ok(Box::new(ui::App::new(&cc.egui_ctx)))
+        }),
+    );
+    // Quitter l'application déconnecte les tunnels (s'il n'y a pas d'autre
+    // application ouverte).
+    if !backend::is_demo() {
+        session::close();
+    }
+    result
 }

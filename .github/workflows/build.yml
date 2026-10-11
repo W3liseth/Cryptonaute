@@ -54,12 +54,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Dépendances système (Linux)
-        timeout-minutes: 10
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      # L'interface native (egui) ne demande aucune bibliothèque de développement.
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
@@ -72,9 +67,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
+      - name: NSIS
+        run: if (-not (Test-Path "${env:ProgramFiles(x86)}/NSIS/makensis.exe")) { choco install nsis -y --no-progress }
       - run: pwsh scripts/build.ps1
       - uses: actions/upload-artifact@v7
         with:
@@ -90,15 +84,11 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-      - name: Dépendances système
+      - name: Outils d'empaquetage
         timeout-minutes: 10
         run: |
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            libxdo-dev libssl-dev file patchelf rpm
+          sudo apt-get -o Acquire::Retries=3 install -y rpm
       - run: bash scripts/build-linux.sh
       - uses: actions/upload-artifact@v7
         with:
@@ -116,9 +106,6 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
       - run: bash scripts/build-macos.sh
       - uses: actions/upload-artifact@v7
         with:
@@ -161,7 +148,8 @@ jobs:
             esac
           done
       # Signature minisign vérifiée par l'application avant toute mise à jour
-      # automatique (clé publique : crates/app/updater.pub).
+      # automatique (clé publique : crates/app/updater.pub). L'outil de signature
+      # de la CLI Tauri sert uniquement à produire ces fichiers .sig.
       - name: Signature des installeurs
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
