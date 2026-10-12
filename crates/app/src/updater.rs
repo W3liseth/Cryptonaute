@@ -1,9 +1,9 @@
 //! Mises à jour de Cryptonaute depuis les releases GitHub.
 //!
-//! Le plugin de mise à jour de Tauri ne remplace que l'application (`.app`,
-//! AppImage) : le service privilégié resterait dans son ancienne version. On
-//! réutilise donc les installeurs complets de la release (`.exe`, `.deb`, `.rpm`,
-//! `.pkg`), qui mettent à jour l'application et le service ensemble :
+//! Remplacer la seule application laisserait le service privilégié dans son
+//! ancienne version. On réutilise donc les installeurs complets de la release
+//! (`.exe`, `.deb`, `.rpm`, `.pkg`), qui mettent à jour l'application et le
+//! service ensemble :
 //! 1. la dernière release est lue via l'API GitHub ;
 //! 2. l'installeur de la plateforme est téléchargé, puis sa signature minisign
 //!    (fichier `.sig` produit par la CI) est vérifiée avec la clé publique
@@ -45,10 +45,42 @@ pub struct UpdateInfo {
     sig_url: String,
 }
 
+impl UpdateInfo {
+    /// Mise à jour fictive (scènes de développement, inactives en version publiée).
+    pub fn demo() -> Self {
+        let current = env!("CARGO_PKG_VERSION");
+        let next = semver::Version::parse(current).map_or_else(|_| "9.9.9".into(), |v| format!("{}.{}.0", v.major, v.minor + 1));
+        UpdateInfo {
+            asset: Some(format!("Cryptonaute_{next}_x64-setup.exe")),
+            version: next,
+            current: current.into(),
+            notes: "### Nouveautés
+- Exemple de nouveauté, en **gras**
+- Démarrage plus rapide
+
+### Corrections
+- Diverses corrections".into(),
+            page: "https://github.com/W3liseth/Cryptonaute/releases".into(),
+            size: 5_300_000,
+            url: String::new(),
+            sig_url: String::new(),
+        }
+    }
+}
+
 /// Dernière mise à jour trouvée, partagée entre l'interface et la zone de notification.
-#[derive(Default)]
-pub struct UpdateState {
-    pub available: Mutex<Option<UpdateInfo>>,
+static AVAILABLE: Mutex<Option<UpdateInfo>> = Mutex::new(None);
+
+pub fn available() -> Option<UpdateInfo> {
+    AVAILABLE.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Mémorise le résultat d'une recherche ; vrai si la version proposée a changé.
+pub fn store(found: Option<UpdateInfo>) -> bool {
+    let mut available = AVAILABLE.lock().unwrap_or_else(|e| e.into_inner());
+    let changed = found.as_ref().map(|u| &u.version) != available.as_ref().map(|u| &u.version);
+    *available = found;
+    changed
 }
 
 #[derive(Deserialize)]
@@ -189,8 +221,9 @@ fn verify(data: &[u8], sig_b64: &str, name: &str) -> Result<(), String> {
 /// Télécharge l'installeur et vérifie sa signature. `progress(reçu, total)`.
 pub fn download(info: &UpdateInfo, mut progress: impl FnMut(u64, u64)) -> Result<PathBuf, String> {
     let name = info.asset.as_deref().ok_or("aucun installeur pour cette plateforme")?;
-    // Le nom vient de GitHub : il ne doit désigner qu'un fichier du dossier temporaire.
-    if name.contains(['/', '\\']) || name.starts_with('.') {
+    // Le nom vient de GitHub : il ne doit désigner qu'un fichier du dossier de
+    // téléchargement, et porter la version annoncée (signée avec lui, voir `verify`).
+    if name.contains(['/', '\\']) || name.starts_with('.') || !name.contains(&info.version) {
         return Err("nom d'installeur invalide".into());
     }
     let http = agent(Duration::from_secs(600));
@@ -220,7 +253,10 @@ pub fn download(info: &UpdateInfo, mut progress: impl FnMut(u64, u64)) -> Result
     }
     verify(&data, &sig, name)?;
 
-    let dir = std::env::temp_dir().join("cryptonaute-update");
+    // Dossier de données de l'utilisateur, et non le dossier temporaire : sous
+    // Linux, /tmp est partagé et un autre utilisateur pourrait y préparer le dossier
+    // pour substituer l'installeur entre sa vérification et son installation (root).
+    let dir = crate::paths::data_dir()?.join("update");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);
