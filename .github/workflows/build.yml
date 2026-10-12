@@ -167,7 +167,7 @@ jobs:
           [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "::error::secret TAURI_SIGNING_PRIVATE_KEY manquant"; exit 1; }
           cd artifacts
           for f in *.exe *.deb *.rpm *.pkg; do
-            npx --yes @tauri-apps/cli@2.11.5 signer sign "$f"
+            npx --yes @tauri-apps/cli@2.12.1 signer sign "$f"
           done
       - name: Publication de la release et du tag
         env:
