@@ -67,8 +67,17 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # Chocolatey répond parfois en erreur (504) : quelques tentatives, puis échec explicite.
       - name: NSIS
-        run: if (-not (Test-Path "${env:ProgramFiles(x86)}/NSIS/makensis.exe")) { choco install nsis -y --no-progress }
+        timeout-minutes: 10
+        run: |
+          $makensis = "${env:ProgramFiles(x86)}/NSIS/makensis.exe"
+          for ($i = 1; -not (Test-Path $makensis) -and $i -le 4; $i++) {
+            choco install nsis -y --no-progress
+            if (-not (Test-Path $makensis)) { Start-Sleep -Seconds (15 * $i) }
+          }
+          if (-not (Test-Path $makensis)) { throw "installation de NSIS impossible" }
+          & $makensis /VERSION
       - run: pwsh scripts/build.ps1
       - uses: actions/upload-artifact@v7
         with:
