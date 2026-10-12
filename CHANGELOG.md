@@ -4,6 +4,22 @@ Toutes les évolutions notables de Cryptonaute, de la plus récente à la plus a
 Chaque section `## X.Y.Z` est aussi utilisée comme notes de la release GitHub et
 affichée dans l'application (*Options › Patch notes*).
 
+## 0.6.0 — 2026-10-12
+
+### Nouveautés
+- **Nouvelle interface native**, écrite en Rust avec egui : même design, mêmes animations, mais plus aucun navigateur intégré ni JavaScript. L'application démarre plus vite et ne dépend plus de WebView2 (Windows) ni de WebKitGTK/GTK (Linux).
+- Rendu accéléré par la carte graphique (OpenGL, ou Metal sous macOS) : environ 100 Mo de mémoire, et la fenêtre suit la souris sans à-coups quand on la déplace. Si OpenGL est indisponible (machine virtuelle, bureau à distance), l'application bascule d'elle-même sur DirectX 12 ou Vulkan.
+- Animations économes : 30 images/s au repos, arrêt complet quand la fenêtre est masquée.
+- Sous Linux, l'icône de notification passe par le protocole StatusNotifierItem (KDE, Xfce, Cinnamon… et GNOME avec l'extension *AppIndicator*), sans GTK.
+
+### Améliorations
+- Le bouton de connexion n'affiche plus d'infobulle.
+- Paquets Linux plus légers : ils ne dépendent plus que de nftables et des bibliothèques graphiques de base.
+
+### Sécurité
+- Windows : Cryptonaute s'installe toujours dans *Program Files*, et seuls les administrateurs peuvent modifier son dossier, y compris pour une installation existante placée ailleurs. Le service, exécuté en tant que SYSTEM, ne peut plus être remplacé par un utilisateur standard.
+- Mises à jour : l'installeur téléchargé est conservé dans le dossier personnel de l'utilisateur et non plus dans le dossier temporaire, partagé entre utilisateurs sous Linux. Son nom doit en outre correspondre à la version annoncée.
+
 ## 0.5.1 — 2026-10-09
 
 ### Nouveautés

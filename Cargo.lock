@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "cryptonaute"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "base64 0.22.1",
  "cryptonaute-common",
@@ -883,7 +883,7 @@ dependencies = [
 
 [[package]]
 name = "cryptonaute-common"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "base64 0.22.1",
  "ipnet",
@@ -896,7 +896,7 @@ dependencies = [
 
 [[package]]
 name = "cryptonaute-service"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "cryptonaute-common",
@@ -1126,6 +1126,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "egui_glow",
+ "glow",
  "glutin",
  "glutin-winit",
  "image",

@@ -17,20 +17,23 @@ pub mod theme;
 mod view;
 mod widgets;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, CursorIcon, Id, Key, Modifiers, Pos2, Rect, ResizeDirection, Sense, Vec2, ViewportCommand};
 
 pub use app::{App, ToastKind};
 use app::Modal;
-use theme::Accent;
+use theme::{Accent, Mood};
 
-/// Intervalle entre deux images pour les animations continues (fond, ondes…).
+/// Intervalle entre deux images pour les animations continues : fond et ondes
+/// à 30 images/s, anneau de connexion à 60 images/s.
 const FRAME: Duration = Duration::from_millis(33);
+const FAST_FRAME: Duration = Duration::from_millis(16);
 
 impl eframe::App for App {
     /// Appelé à chaque passage, y compris fenêtre masquée (icône de notification).
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.pacer.wait(ctx);
         self.now = format::now_secs();
         self.drain_jobs();
         crate::handle_close_request(ctx);
@@ -68,7 +71,11 @@ impl App {
         self.keyboard(&ctx);
         self.dropped_files(&ctx);
         debug::Scene::tick(self, &ctx);
-        ctx.request_repaint_after(FRAME);
+        let frame = if matches!(self.mood(), Mood::Connecting | Mood::Disconnecting) { FAST_FRAME } else { FRAME };
+        // egui avance l'image suivante de la durée estimée d'une image : on la rajoute
+        // pour tenir la cadence voulue.
+        let predicted = ctx.input(|i| i.predicted_dt);
+        ctx.request_repaint_after(frame + Duration::from_secs_f32(predicted));
     }
 
     fn keyboard(&mut self, ctx: &egui::Context) {
@@ -113,6 +120,39 @@ impl App {
         if !files.is_empty() {
             self.import_files(files);
         }
+    }
+}
+
+/// Le rendu se fait sans synchronisation verticale (déplacements de fenêtre
+/// fluides) : rien ne limiterait alors la cadence pendant une animation ou un
+/// survol. On la plafonne à la fréquence de l'écran, sauf pendant un déplacement
+/// de la fenêtre, où chaque position doit être dessinée sans attendre.
+#[derive(Default)]
+pub struct Pacer {
+    last_frame: Option<Instant>,
+    last_position: Option<Pos2>,
+    last_move: Option<Instant>,
+}
+
+impl Pacer {
+    /// Délai après le dernier mouvement pendant lequel la cadence reste libre
+    /// (le bouton peut rester enfoncé, souris immobile, au milieu d'un déplacement).
+    const MOVE_GRACE: Duration = Duration::from_millis(500);
+
+    fn wait(&mut self, ctx: &egui::Context) {
+        let (dt, position) = ctx.input(|i| (i.predicted_dt, i.viewport().outer_rect.map(|r| r.min)));
+        if position != self.last_position {
+            self.last_position = position;
+            self.last_move = Some(Instant::now());
+        }
+        let moving = self.last_move.is_some_and(|t| t.elapsed() < Self::MOVE_GRACE);
+        if let (false, Some(last)) = (moving, self.last_frame) {
+            let min = Duration::from_secs_f32(dt.clamp(1.0 / 240.0, 1.0 / 30.0));
+            if let Some(rest) = min.checked_sub(last.elapsed()) {
+                std::thread::sleep(rest);
+            }
+        }
+        self.last_frame = Some(Instant::now());
     }
 }
 

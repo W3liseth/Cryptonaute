@@ -48,7 +48,7 @@ Version: ${VERSION}
 Architecture: amd64
 Maintainer: Cryptonaute contributors
 Installed-Size: $(du -sk "$ROOT" | cut -f1)
-Depends: libc6 (>= 2.31), nftables, libxkbcommon0, libegl1 | libvulkan1
+Depends: libc6 (>= 2.31), nftables, libxkbcommon0, libegl1 | libgl1
 Recommends: xdg-desktop-portal, fonts-dejavu-core | fonts-noto-core
 Conflicts: rust-guard
 Replaces: rust-guard

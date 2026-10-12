@@ -73,7 +73,7 @@ fn spinner_ring(center: Pos2, radius: f32, width: f32, rotation: f32, accent: Ac
     Shape::mesh(mesh)
 }
 
-pub fn power_button(ui: &mut Ui, rect: Rect, mood: Mood, enabled: bool, accent: Accent, tooltip: &str) -> Response {
+pub fn power_button(ui: &mut Ui, rect: Rect, mood: Mood, enabled: bool, accent: Accent, label: &str) -> Response {
     let id = ui.id().with("power");
     let response = ui.interact(rect, id, if enabled { Sense::click() } else { Sense::hover() });
     let ctx = ui.ctx().clone();
@@ -152,8 +152,9 @@ pub fn power_button(ui: &mut Ui, rect: Rect, mood: Mood, enabled: bool, accent: 
     }
     icons::paint_centered(ui, Icon::Power, c, 40.0 * scale, theme::fade(icon_color, opacity));
 
-    let response = if enabled { response.on_hover_cursor(CursorIcon::PointingHand) } else { response.on_hover_cursor(CursorIcon::NotAllowed) };
-    response.on_hover_text(tooltip)
+    // Pas d'infobulle : le libellé ne sert qu'aux lecteurs d'écran.
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    if enabled { response.on_hover_cursor(CursorIcon::PointingHand) } else { response.on_hover_cursor(CursorIcon::NotAllowed) }
 }
 
 #[allow(dead_code)]

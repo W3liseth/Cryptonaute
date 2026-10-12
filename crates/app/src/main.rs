@@ -30,6 +30,8 @@ const UPDATE_INTERVAL: Duration = Duration::from_secs(6 * 3600);
 
 /// L'utilisateur a demandé à quitter (la fermeture n'est alors plus annulée).
 static QUITTING: AtomicBool = AtomicBool::new(false);
+/// Le moteur de rendu a démarré (fenêtre et contexte graphique créés).
+static UI_STARTED: AtomicBool = AtomicBool::new(false);
 
 /// Quitte l'application ; les tunnels sont déconnectés à la sortie (voir `session`).
 pub fn request_quit() {
@@ -48,12 +50,20 @@ pub fn request_quit() {
 
 /// Relance l'application (après une mise à jour installée sous Linux).
 pub fn restart() {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new(exe)
-            .env("CRYPTONAUTE_WAIT_PID", std::process::id().to_string())
-            .spawn();
-    }
+    spawn_successor(std::iter::empty::<&str>(), None);
     request_quit();
+}
+
+/// Lance une nouvelle instance, qui attend la fin de celle-ci (instance unique).
+fn spawn_successor<S: AsRef<std::ffi::OsStr>>(args: impl IntoIterator<Item = S>, renderer: Option<&str>) {
+    if let Ok(exe) = std::env::current_exe() {
+        let mut command = std::process::Command::new(exe);
+        command.args(args).env("CRYPTONAUTE_WAIT_PID", std::process::id().to_string());
+        if let Some(renderer) = renderer {
+            command.env("CRYPTONAUTE_RENDERER", renderer);
+        }
+        let _ = command.spawn();
+    }
 }
 
 /// Affiche la fenêtre au premier plan (icône de notification, second lancement).
@@ -175,27 +185,62 @@ fn main() -> eframe::Result {
     } else {
         viewport.with_decorations(false)
     };
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport,
         centered: true,
         ..Default::default()
     };
+    let renderer = renderer();
+    options.renderer = renderer;
+    // Sans synchronisation verticale : la présentation d'une image ne bloque plus le
+    // thread de la fenêtre, qui suit alors les déplacements sans à-coups. La cadence
+    // reste limitée par l'interface (voir `ui::FRAME`).
+    options.glow_options.vsync = false;
+    options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
+    #[cfg(debug_assertions)]
+    if renderer == eframe::Renderer::Glow && std::env::var_os("CRYPTONAUTE_TEST_GL_FAILURE").is_some() {
+        options.depth_buffer = u8::MAX; // aucune configuration OpenGL ne convient
+    }
 
-    let result = eframe::run_native(
-        "Cryptonaute",
-        options,
-        Box::new(|cc| {
-            ui::theme::install_fonts(&cc.egui_ctx);
-            ui::theme::install_style(&cc.egui_ctx);
-            egui_extras::install_image_loaders(&cc.egui_ctx);
-            events::set_context(cc.egui_ctx.clone());
-            Ok(Box::new(ui::App::new(&cc.egui_ctx)))
-        }),
-    );
+    // Le moteur de rendu peut échouer par une erreur ou une panique d'eframe.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        eframe::run_native(
+            "Cryptonaute",
+            options,
+            Box::new(|cc| {
+                UI_STARTED.store(true, Ordering::SeqCst);
+                ui::theme::install_fonts(&cc.egui_ctx);
+                ui::theme::install_style(&cc.egui_ctx);
+                egui_extras::install_image_loaders(&cc.egui_ctx);
+                events::set_context(cc.egui_ctx.clone());
+                Ok(Box::new(ui::App::new(&cc.egui_ctx)))
+            }),
+        )
+    }));
+    // OpenGL indisponible (machine virtuelle, bureau à distance, pilote trop ancien) :
+    // l'interface n'a pas pu démarrer, on relance avec wgpu (DirectX 12, Vulkan…),
+    // sans déconnecter les tunnels.
+    if renderer == eframe::Renderer::Glow && !UI_STARTED.load(Ordering::SeqCst) && !matches!(outcome, Ok(Ok(()))) {
+        eprintln!("OpenGL indisponible : relance avec wgpu");
+        spawn_successor(std::env::args_os().skip(1), Some("wgpu"));
+        return Ok(());
+    }
+    let result = outcome.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
     // Quitter l'application déconnecte les tunnels (s'il n'y a pas d'autre
     // application ouverte).
     if !backend::is_demo() {
         session::close();
     }
     result
+}
+
+/// Moteur de rendu : OpenGL (glow), le plus économe en mémoire, sauf sous macOS
+/// (Metal, via wgpu). `CRYPTONAUTE_RENDERER=wgpu` ou `glow` force le choix.
+fn renderer() -> eframe::Renderer {
+    match std::env::var("CRYPTONAUTE_RENDERER").as_deref() {
+        Ok("wgpu") => eframe::Renderer::Wgpu,
+        Ok("glow") => eframe::Renderer::Glow,
+        _ if cfg!(target_os = "macos") => eframe::Renderer::Wgpu,
+        _ => eframe::Renderer::Glow,
+    }
 }

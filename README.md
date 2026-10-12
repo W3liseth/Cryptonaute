@@ -203,7 +203,7 @@ trois opérations : *connecter* (nom + configuration), *déconnecter* et *statut
 | [`crates/common`](crates/common) | Parseur et validateur `wg-quick`, protocole IPC — partagé et testé |
 | [`crates/service`](crates/service) | Service privilégié : `windows/` (SCM, WireGuardNT, IP Helper, named pipe) et `unix/` (systemd/launchd, [`defguard_wireguard_rs`](https://github.com/DefGuard/wireguard-rs), socket Unix, nftables) |
 | [`crates/app`](crates/app) | Application : stockage, client IPC, zone de notification ([`tray-icon`](https://github.com/tauri-apps/tray-icon)), options, mises à jour |
-| [`crates/app/src/ui`](crates/app/src/ui) | Interface native [egui](https://github.com/emilk/egui) (rendu wgpu : DirectX 12, Metal, Vulkan ou OpenGL) |
+| [`crates/app/src/ui`](crates/app/src/ui) | Interface native [egui](https://github.com/emilk/egui) (rendu OpenGL ; wgpu sous macOS et en repli : DirectX 12, Metal, Vulkan) |
 
 ## Sécurité
 
@@ -225,14 +225,17 @@ trois opérations : *connecter* (nom + configuration), *déconnecter* et *statut
   Linux et macOS, comme `/etc/wireguard` pour `wg-quick`.
 - **Binaire du service de confiance** : sous Linux et macOS, `cryptonaute-service install`
   refuse de s'enregistrer si son exécutable (ou un dossier parent) est modifiable par
-  un autre utilisateur que root.
+  un autre utilisateur que root. Sous Windows, l'installeur place toujours Cryptonaute
+  dans *Program Files* et réserve la modification de son dossier à SYSTEM et aux
+  administrateurs (propriétaire et droits réinitialisés à chaque installation).
 - **`wireguard.dll`** est le pilote officiel signé par WireGuard LLC ; le script de mise
   à jour vérifie sa signature Authenticode.
 - **Mises à jour signées.** Chaque installeur de la release est signé (minisign, Ed25519)
   par la CI ; l'application vérifie la signature avec la clé publique qu'elle embarque
   ([`crates/app/updater.pub`](crates/app/updater.pub)) avant de lancer l'installeur. Le
   nom du fichier fait partie du message signé : un ancien installeur ne peut pas être
-  présenté comme une version plus récente. Le téléchargement se fait uniquement en HTTPS.
+  présenté comme une version plus récente. Le téléchargement se fait uniquement en HTTPS,
+  dans le dossier de données de l'utilisateur (jamais dans un dossier temporaire partagé).
 
 ## Compiler depuis les sources
 
@@ -324,6 +327,10 @@ CRYPTONAUTE_DEMO=1 CRYPTONAUTE_SCENE=connected CRYPTONAUTE_SCREENSHOT=capture.pn
 
 Scènes : `main`, `connected`, `multi` (deux tunnels), `scrolled`, `editor`, `new`,
 `confirm`, `options`, `notes`, `update`, `toasts`, `hide-show`.
+
+L'interface est rendue en OpenGL (Metal via wgpu sous macOS) ; si OpenGL ne démarre pas,
+l'application se relance d'elle-même avec wgpu (DirectX 12, Vulkan). `CRYPTONAUTE_RENDERER=wgpu`
+ou `glow` force le moteur de rendu (dépannage, y compris sur une version installée).
 
 Exécuter le service au premier plan, avec les journaux dans la console :
 

@@ -147,6 +147,8 @@ pub struct App {
     pub scene: Option<super::debug::Scene>,
     /// Développement : faire défiler la vue jusqu'en bas.
     pub scroll_to_bottom: bool,
+    /// Plafond de cadence (rendu sans synchronisation verticale).
+    pub pacer: super::Pacer,
 }
 
 pub type UpdateInfoView = updater::UpdateInfo;
@@ -177,6 +179,7 @@ impl App {
             now: format::now_secs(),
             scene: super::debug::Scene::from_env(),
             scroll_to_bottom: false,
+            pacer: super::Pacer::default(),
         };
         app.refresh_options();
         app.load_tunnels(None);
@@ -600,9 +603,9 @@ impl App {
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() || "_=+.-".contains(c) { c } else { '-' })
             .collect();
-        let cleaned = cleaned.trim_start_matches(['.', '-']).trim_end_matches('.');
-        let cleaned: String = cleaned.chars().take(32).collect();
-        self.unique_name(if cleaned.is_empty() { "tunnel" } else { &cleaned }, reserved)
+        let cleaned: String = cleaned.trim_start_matches(['.', '-']).chars().take(32).collect();
+        let cleaned = cleaned.trim_end_matches('.');
+        self.unique_name(if cleaned.is_empty() { "tunnel" } else { cleaned }, reserved)
     }
 
     /// Importe des fichiers : un seul s'ouvre dans l'éditeur, plusieurs sont enregistrés.

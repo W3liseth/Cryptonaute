@@ -62,8 +62,8 @@ Var UpdateMode
 
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
 !insertmacro MUI_PAGE_WELCOME
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassiveOrUpdate
-!insertmacro MUI_PAGE_DIRECTORY
+; Pas de choix du dossier : le service y est exécuté en tant que SYSTEM, il doit
+; rester dans Program Files (voir aussi CN_SECURE_INSTDIR).
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "Lancer ${PRODUCT}"
@@ -78,13 +78,6 @@ Var UpdateMode
 
 Function SkipIfPassive
   ${If} $PassiveMode == 1
-    Abort
-  ${EndIf}
-FunctionEnd
-
-Function SkipIfPassiveOrUpdate
-  ${If} $PassiveMode == 1
-  ${OrIf} $UpdateMode == 1
     Abort
   ${EndIf}
 FunctionEnd
@@ -167,10 +160,29 @@ FunctionEnd
   Pop $1
 !macroend
 
+; ---------- Droits du dossier d'installation ----------
+; Le service (SYSTEM) exécute cryptonaute-service.exe et charge wireguard.dll depuis
+; ce dossier : seuls SYSTEM et les administrateurs doivent pouvoir le modifier, même
+; s'il a été placé ailleurs que dans Program Files par une version précédente.
+; Propriétaire : Administrateurs ; héritage coupé ; lecture seule pour les utilisateurs.
+!macro CN_SECURE_INSTDIR
+  nsExec::Exec 'icacls "$INSTDIR" /setowner *S-1-5-32-544 /T /C /Q'
+  Pop $0
+  nsExec::Exec 'icacls "$INSTDIR" /reset /T /C /Q'
+  Pop $0
+  nsExec::Exec 'icacls "$INSTDIR" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /C /Q'
+  Pop $0
+  ${If} $0 != 0
+    MessageBox MB_ICONSTOP|MB_OK "Impossible de protéger le dossier $INSTDIR (code $0) : installation interrompue."
+    Abort
+  ${EndIf}
+!macroend
+
 ; ---------- Installation ----------
 Section "Cryptonaute" SecMain
   SectionIn RO
   SetOutPath "$INSTDIR"
+  !insertmacro CN_SECURE_INSTDIR
 
   ; L'application en cours d'exécution verrouille ses fichiers.
   DetailPrint "Fermeture de ${PRODUCT}…"
